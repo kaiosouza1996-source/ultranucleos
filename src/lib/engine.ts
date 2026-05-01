@@ -47,7 +47,14 @@ export const engineClient = {
         api.bootstrap().catch(() => {});
       };
       ws.onmessage = (ev) => {
-        try { handleEngineMessage(JSON.parse(ev.data) as EngineMessage); } catch { /* ignore */ }
+        try {
+          const parsed = JSON.parse(ev.data) as EngineMessage;
+          // Debug: log de todas as mensagens recebidas via WebSocket
+          console.log("[WS] mensagem recebida:", parsed);
+          handleEngineMessage(parsed);
+        } catch (err) {
+          console.warn("[WS] payload inválido:", ev.data, err);
+        }
       };
       ws.onerror = () => { /* handled in onclose */ };
       ws.onclose = () => {
@@ -112,9 +119,14 @@ function handleEngineMessage(msg: EngineMessage) {
       store.setCampaign({ running: false, paused: false });
       store.pushLog({ level: "success", message: "Campanha finalizada." });
       break;
-    case "message": {
-      const m = msg.message as ChatMessage;
-      store.pushMessage(m);
+    case "message":
+    case "nova_mensagem": {
+      // Atualiza em tempo real a lista de mensagens do chat aberto
+      const m = (msg.message ?? msg.data ?? msg) as ChatMessage;
+      if (m && m.chat_id && m.id) {
+        console.log("[WS] nova mensagem para chat", m.chat_id, m);
+        store.pushMessage(m);
+      }
       break;
     }
     case "conversations-changed":
