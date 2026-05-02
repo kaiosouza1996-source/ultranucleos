@@ -628,8 +628,30 @@ app.post('/conversations/:id/send', async (req, res) => {
   try {
     const { body } = req.body;
     await sendText(req.params.id, body);
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    res.json({ ok: true, status: 'sucesso' });
+  } catch (e) { res.status(500).json({ error: e.message, status: 'erro' }); }
+});
+
+// Disparo direto: { numero | to, mensagem | body }
+app.post('/send', async (req, res) => {
+  try {
+    if (!waReady) return res.status(503).json({ error: 'WhatsApp não conectado', status: 'erro' });
+    const numeroRaw = req.body?.numero ?? req.body?.to ?? '';
+    const mensagem = req.body?.mensagem ?? req.body?.body ?? '';
+    const numero = String(numeroRaw).replace(/\D+/g, '');
+    if (!numero) return res.status(400).json({ error: 'numero inválido', status: 'erro' });
+    if (!mensagem) return res.status(400).json({ error: 'mensagem vazia', status: 'erro' });
+    const chatId = `${numero}@c.us`;
+    const exists = await wa.isRegisteredUser(chatId);
+    if (!exists) return res.status(404).json({ error: 'Número não está no WhatsApp', status: 'erro' });
+    await wa.sendMessage(chatId, mensagem);
+    db.prepare('INSERT INTO sent (telefone, ts) VALUES (?,?)').run(numero, Date.now());
+    logEvent('success', 'Mensagem enviada via /send', numero);
+    res.json({ ok: true, status: 'sucesso', numero });
+  } catch (e) {
+    logEvent('error', `Erro /send: ${e.message}`);
+    res.status(500).json({ error: e.message, status: 'erro' });
+  }
 });
 
 app.post('/conversations/:id/send-media', upload.single('file'), async (req, res) => {
