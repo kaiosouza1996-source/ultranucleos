@@ -267,34 +267,48 @@ export const api = {
     }
   },
   /**
-   * Envia mensagem direta para um número (rota /send do motor local),
-   * com sanitização do telefone e validação do status retornado.
+   * Envia mensagem direta para um número (rota POST /send do motor local).
+   * Payload: { numero: "5521999999999", mensagem: "..." }
+   * Sanitiza telefone, valida resposta e gera logs claros (incluindo erro de rede).
    */
-  async sendToNumber(numero: string, body: string) {
+  async sendToNumber(numero: string, mensagem: string) {
     const to = sanitizePhoneNumber(numero);
+    const store = useAppStore.getState();
     if (!to) {
       const msg = "Número inválido (sem dígitos).";
-      useAppStore.getState().pushLog({ level: "error", message: msg, contact: numero });
+      store.pushLog({ level: "error", message: msg, contact: numero });
       throw new Error(msg);
     }
+    const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/send`;
+    let res: Response;
     try {
-      const resp = await fetchJson<{ status?: string; success?: boolean; error?: string; message?: string }>(
-        `/send`,
-        { method: "POST", body: JSON.stringify({ to, body }) },
-      );
-      const ok = resp?.status === "sucesso" || resp?.status === "success" || resp?.success === true;
-      if (!ok) {
-        const reason = resp?.error || resp?.message || `Status inesperado: ${resp?.status ?? "desconhecido"}`;
-        useAppStore.getState().pushLog({ level: "error", message: `Falha ao enviar: ${reason}`, contact: to });
-        throw new Error(reason);
-      }
-      useAppStore.getState().pushLog({ level: "success", message: "Mensagem enviada.", contact: to });
-      return resp;
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numero: to, mensagem }),
+      });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      useAppStore.getState().pushLog({ level: "error", message: `Erro do motor: ${msg}`, contact: to });
-      throw err;
+      // Erro de rede — motor desligado, porta bloqueada, CORS, etc.
+      const detail = err instanceof Error ? err.message : String(err);
+      const msg = `Erro de conexão com o motor local (${detail})`;
+      store.pushLog({ level: "error", message: msg, contact: to });
+      throw new Error(msg);
     }
+    let payload: { status?: string; success?: boolean; ok?: boolean; error?: string; message?: string } | null = null;
+    try { payload = await res.json(); } catch { /* sem corpo */ }
+    if (!res.ok) {
+      const reason = payload?.error || payload?.message || `HTTP ${res.status}`;
+      store.pushLog({ level: "error", message: `Falha ao enviar: ${reason}`, contact: to });
+      throw new Error(reason);
+    }
+    const ok = payload?.status === "sucesso" || payload?.status === "success" || payload?.success === true || payload?.ok === true;
+    if (!ok) {
+      const reason = payload?.error || payload?.message || `Status inesperado: ${payload?.status ?? "desconhecido"}`;
+      store.pushLog({ level: "error", message: `Falha ao enviar: ${reason}`, contact: to });
+      throw new Error(reason);
+    }
+    store.pushLog({ level: "success", message: "Mensagem enviada.", contact: to });
+    return payload;
   },
   async sendMedia(chatId: string, file: File, caption: string) {
     const cleanId = sanitizePhoneNumber(chatId) || chatId;
@@ -396,14 +410,25 @@ export function startCampaign(params: CampaignParams) {
   const tpl = store.templates.find((t) => t.id === params.templateId);
   if (!tpl || contacts.length === 0) return;
 
+  // Caminho 1 — motor online via WS: delega para o backend (intervalo, anti-ban etc.)
   if (engineClient.send({ type: "start-campaign", contacts, template: tpl, settings: store.settings })) {
     store.resetCampaign();
     store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
-    store.pushLog({ level: "info", message: `Campanha iniciada: ${contacts.length} contatos.` });
+    store.pushLog({ level: "info", message: `Campanha iniciada no motor: ${contacts.length} contatos.` });
     return;
   }
 
-  // mock fallback
+  // Caminho 2 — motor online via HTTP, mas WS caído: dispara em loop usando POST /send
+  if (store.engineOnline) {
+    store.resetCampaign();
+    store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
+    store.pushLog({ level: "info", message: `Campanha iniciada via HTTP (${contacts.length} contatos).` });
+    runHttpCampaign(contacts, tpl.body, store.settings);
+    return;
+  }
+
+  // Caminho 3 — motor offline: simulação (mantém UI usável)
+  store.pushLog({ level: "error", message: "Erro de conexão com o motor local — usando simulação." });
   store.resetCampaign();
   store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
   store.pushLog({ level: "info", message: `Campanha SIMULADA iniciada (${contacts.length} contatos).` });
@@ -434,6 +459,43 @@ export function startCampaign(params: CampaignParams) {
     mockCampaignTimer = window.setTimeout(tick, min + Math.random() * (max - min));
   };
   tick();
+}
+
+/** Loop HTTP que dispara para cada contato via POST /send, respeitando intervalo/anti-ban. */
+async function runHttpCampaign(
+  contacts: { id: string; nome: string; telefone: string }[],
+  templateBody: string,
+  settings: { minDelay: number; maxDelay: number; longPauseEvery: number; longPauseSeconds: number },
+) {
+  let sent = 0, failed = 0;
+  const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+  for (let i = 0; i < contacts.length; i++) {
+    const s = useAppStore.getState();
+    if (!s.campaign.running) break;
+    while (useAppStore.getState().campaign.paused) await sleep(800);
+    const c = contacts[i];
+    const text = renderTemplate(templateBody, c.nome);
+    s.setCampaign({ currentContact: `${c.nome} (${c.telefone})`, sent, failed });
+    s.pushLog({ level: "info", message: `Enviando para ${c.nome}…`, contact: c.telefone });
+    try {
+      await api.sendToNumber(c.telefone, text);
+      sent++;
+    } catch {
+      failed++;
+    }
+    useAppStore.getState().setCampaign({ sent, failed });
+    if (settings.longPauseEvery && (i + 1) % settings.longPauseEvery === 0) {
+      useAppStore.getState().pushLog({ level: "info", message: `Pausa longa de ~${settings.longPauseSeconds}s` });
+      await sleep(settings.longPauseSeconds * 1000);
+    } else {
+      const min = settings.minDelay * 1000;
+      const max = settings.maxDelay * 1000;
+      await sleep(min + Math.random() * Math.max(0, max - min));
+    }
+  }
+  const fin = useAppStore.getState();
+  fin.setCampaign({ running: false, paused: false });
+  fin.pushLog({ level: "success", message: `Campanha finalizada: ${sent} enviadas, ${failed} erros.` });
 }
 
 function stopMockCampaign() {
