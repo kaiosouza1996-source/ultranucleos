@@ -531,11 +531,58 @@ export function renderTemplate(body: string, nome: string): string {
   return body.replace(/\{nome\}/gi, nome);
 }
 
+let healthTimer: number | null = null;
+let lastHealthOk: boolean | null = null;
+
+async function pingHealth() {
+  const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/health`;
+  try {
+    const ctrl = new AbortController();
+    const t = window.setTimeout(() => ctrl.abort(), 3000);
+    const res = await fetch(url, { method: "GET", cache: "no-store", signal: ctrl.signal });
+    window.clearTimeout(t);
+    const ok = res.ok;
+    const store = useAppStore.getState();
+    if (ok) {
+      if (lastHealthOk !== true) {
+        console.log("[ENGINE] /health OK — motor online");
+        store.pushLog({ level: "success", message: "Motor local respondendo em /health." });
+        // Se a UI estava marcada como offline, força reconexão WS imediata
+        if (!store.engineOnline) {
+          store.setEngineOnline(true);
+          if (!engineClient.ws || engineClient.ws.readyState !== WebSocket.OPEN) {
+            try { engineClient.connect(); } catch { /* ignore */ }
+          }
+        }
+      }
+      lastHealthOk = true;
+    } else {
+      throw new Error(`HTTP ${res.status}`);
+    }
+  } catch (err) {
+    if (lastHealthOk !== false) {
+      console.warn("[ENGINE] /health indisponível:", err);
+      const store = useAppStore.getState();
+      if (store.engineOnline) {
+        store.setEngineOnline(false);
+        store.pushLog({ level: "warn", message: "Motor local não responde em /health." });
+      }
+    }
+    lastHealthOk = false;
+  }
+}
+
 export function useEngineBootstrap() {
   const started = useRef(false);
   useEffect(() => {
     if (started.current) return;
     started.current = true;
     engineClient.connect();
+    // Polling de health a cada 5s para restabelecer o indicador visual.
+    pingHealth();
+    healthTimer = window.setInterval(pingHealth, 5000);
+    return () => {
+      if (healthTimer) { window.clearInterval(healthTimer); healthTimer = null; }
+    };
   }, []);
 }
