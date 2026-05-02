@@ -160,12 +160,22 @@ function handleEngineMessage(msg: EngineMessage) {
 // ─────────────────── REST helpers ───────────────────
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(ENGINE_HTTP + path, {
+  // Garante que sempre usamos http:// (nunca https) para o motor local.
+  const url = ENGINE_HTTP.replace(/^https:/, "http:") + path;
+  const res = await fetch(url, {
     ...init,
     headers: { "content-type": "application/json", ...(init?.headers || {}) },
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  // Tenta parsear o JSON mesmo em caso de erro para extrair mensagem do servidor.
+  let payload: unknown = null;
+  try { payload = await res.json(); } catch { /* sem corpo JSON */ }
+  if (!res.ok) {
+    const serverMsg = (payload && typeof payload === "object"
+      && (("error" in payload && (payload as { error?: string }).error)
+        || ("message" in payload && (payload as { message?: string }).message))) || "";
+    throw new Error(serverMsg ? String(serverMsg) : `HTTP ${res.status}`);
+  }
+  return payload as T;
 }
 
 export const api = {
