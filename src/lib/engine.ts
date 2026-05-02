@@ -8,8 +8,18 @@
 import { useEffect, useRef } from "react";
 import { useAppStore, type ChatMessage, type Conversation, type CustomField, type PipelineStage, type Tag } from "@/store/appStore";
 
+// Força HTTP (sem TLS) para evitar bloqueios de certificado em localhost.
 export const ENGINE_HTTP = "http://localhost:8787";
 export const ENGINE_WS = "ws://localhost:8787/ws";
+
+/**
+ * Limpeza rigorosa de número: remove parênteses, espaços, traços, pontos,
+ * sinais de mais e qualquer caractere não numérico — mantém apenas dígitos.
+ * Ex: "+55 (21) 99999-9999" → "5521999999999"
+ */
+export function sanitizePhoneNumber(raw: string): string {
+  return String(raw ?? "").replace(/\D+/g, "");
+}
 
 interface EngineMessage { type: string; [k: string]: unknown }
 
@@ -150,12 +160,22 @@ function handleEngineMessage(msg: EngineMessage) {
 // ─────────────────── REST helpers ───────────────────
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(ENGINE_HTTP + path, {
+  // Garante que sempre usamos http:// (nunca https) para o motor local.
+  const url = ENGINE_HTTP.replace(/^https:/, "http:") + path;
+  const res = await fetch(url, {
     ...init,
     headers: { "content-type": "application/json", ...(init?.headers || {}) },
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  // Tenta parsear o JSON mesmo em caso de erro para extrair mensagem do servidor.
+  let payload: unknown = null;
+  try { payload = await res.json(); } catch { /* sem corpo JSON */ }
+  if (!res.ok) {
+    const serverMsg = (payload && typeof payload === "object"
+      && (("error" in payload && (payload as { error?: string }).error)
+        || ("message" in payload && (payload as { message?: string }).message))) || "";
+    throw new Error(serverMsg ? String(serverMsg) : `HTTP ${res.status}`);
+  }
+  return payload as T;
 }
 
 export const api = {
@@ -224,20 +244,78 @@ export const api = {
     await fetchJson(`/conversations/${encodeURIComponent(chatId)}/finish`, { method: "POST" });
   },
   async sendText(chatId: string, body: string) {
-    await fetchJson(`/conversations/${encodeURIComponent(chatId)}/send`, {
-      method: "POST",
-      body: JSON.stringify({ body }),
-    });
+    // Sanitiza o número (mantém apenas dígitos) antes de chamar /send.
+    const cleanId = sanitizePhoneNumber(chatId) || chatId;
+    try {
+      const resp = await fetchJson<{ status?: string; success?: boolean; error?: string; message?: string }>(
+        `/conversations/${encodeURIComponent(cleanId)}/send`,
+        { method: "POST", body: JSON.stringify({ body, to: cleanId }) },
+      );
+      // Mesmo com 200, validar se o motor confirmou sucesso.
+      const ok = resp?.status === "sucesso" || resp?.status === "success" || resp?.success === true;
+      if (!ok) {
+        const reason = resp?.error || resp?.message || `Status inesperado: ${resp?.status ?? "desconhecido"}`;
+        useAppStore.getState().pushLog({ level: "error", message: `Falha ao enviar: ${reason}`, contact: cleanId });
+        throw new Error(reason);
+      }
+      useAppStore.getState().pushLog({ level: "success", message: "Mensagem enviada.", contact: cleanId });
+      return resp;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      useAppStore.getState().pushLog({ level: "error", message: `Erro do motor: ${msg}`, contact: cleanId });
+      throw err;
+    }
+  },
+  /**
+   * Envia mensagem direta para um número (rota /send do motor local),
+   * com sanitização do telefone e validação do status retornado.
+   */
+  async sendToNumber(numero: string, body: string) {
+    const to = sanitizePhoneNumber(numero);
+    if (!to) {
+      const msg = "Número inválido (sem dígitos).";
+      useAppStore.getState().pushLog({ level: "error", message: msg, contact: numero });
+      throw new Error(msg);
+    }
+    try {
+      const resp = await fetchJson<{ status?: string; success?: boolean; error?: string; message?: string }>(
+        `/send`,
+        { method: "POST", body: JSON.stringify({ to, body }) },
+      );
+      const ok = resp?.status === "sucesso" || resp?.status === "success" || resp?.success === true;
+      if (!ok) {
+        const reason = resp?.error || resp?.message || `Status inesperado: ${resp?.status ?? "desconhecido"}`;
+        useAppStore.getState().pushLog({ level: "error", message: `Falha ao enviar: ${reason}`, contact: to });
+        throw new Error(reason);
+      }
+      useAppStore.getState().pushLog({ level: "success", message: "Mensagem enviada.", contact: to });
+      return resp;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      useAppStore.getState().pushLog({ level: "error", message: `Erro do motor: ${msg}`, contact: to });
+      throw err;
+    }
   },
   async sendMedia(chatId: string, file: File, caption: string) {
+    const cleanId = sanitizePhoneNumber(chatId) || chatId;
     const fd = new FormData();
     fd.append("file", file);
     fd.append("caption", caption);
-    const res = await fetch(`${ENGINE_HTTP}/conversations/${encodeURIComponent(chatId)}/send-media`, {
-      method: "POST",
-      body: fd,
-    });
-    if (!res.ok) throw new Error("falha ao enviar mídia");
+    const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/conversations/${encodeURIComponent(cleanId)}/send-media`;
+    const res = await fetch(url, { method: "POST", body: fd });
+    let payload: { status?: string; success?: boolean; error?: string; message?: string } | null = null;
+    try { payload = await res.json(); } catch { /* ignore */ }
+    if (!res.ok) {
+      const reason = payload?.error || payload?.message || `HTTP ${res.status}`;
+      useAppStore.getState().pushLog({ level: "error", message: `Falha ao enviar mídia: ${reason}`, contact: cleanId });
+      throw new Error(reason);
+    }
+    const ok = !payload || payload.status === "sucesso" || payload.status === "success" || payload.success === true;
+    if (!ok) {
+      const reason = payload?.error || payload?.message || `Status inesperado: ${payload?.status ?? "desconhecido"}`;
+      useAppStore.getState().pushLog({ level: "error", message: `Falha ao enviar mídia: ${reason}`, contact: cleanId });
+      throw new Error(reason);
+    }
   },
   async createTag(nome: string, cor?: string) {
     return fetchJson<{ id: string; nome: string }>("/tags", { method: "POST", body: JSON.stringify({ nome, cor }) });
