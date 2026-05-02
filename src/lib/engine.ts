@@ -267,34 +267,48 @@ export const api = {
     }
   },
   /**
-   * Envia mensagem direta para um número (rota /send do motor local),
-   * com sanitização do telefone e validação do status retornado.
+   * Envia mensagem direta para um número (rota POST /send do motor local).
+   * Payload: { numero: "5521999999999", mensagem: "..." }
+   * Sanitiza telefone, valida resposta e gera logs claros (incluindo erro de rede).
    */
-  async sendToNumber(numero: string, body: string) {
+  async sendToNumber(numero: string, mensagem: string) {
     const to = sanitizePhoneNumber(numero);
+    const store = useAppStore.getState();
     if (!to) {
       const msg = "Número inválido (sem dígitos).";
-      useAppStore.getState().pushLog({ level: "error", message: msg, contact: numero });
+      store.pushLog({ level: "error", message: msg, contact: numero });
       throw new Error(msg);
     }
+    const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/send`;
+    let res: Response;
     try {
-      const resp = await fetchJson<{ status?: string; success?: boolean; error?: string; message?: string }>(
-        `/send`,
-        { method: "POST", body: JSON.stringify({ to, body }) },
-      );
-      const ok = resp?.status === "sucesso" || resp?.status === "success" || resp?.success === true;
-      if (!ok) {
-        const reason = resp?.error || resp?.message || `Status inesperado: ${resp?.status ?? "desconhecido"}`;
-        useAppStore.getState().pushLog({ level: "error", message: `Falha ao enviar: ${reason}`, contact: to });
-        throw new Error(reason);
-      }
-      useAppStore.getState().pushLog({ level: "success", message: "Mensagem enviada.", contact: to });
-      return resp;
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numero: to, mensagem }),
+      });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      useAppStore.getState().pushLog({ level: "error", message: `Erro do motor: ${msg}`, contact: to });
-      throw err;
+      // Erro de rede — motor desligado, porta bloqueada, CORS, etc.
+      const detail = err instanceof Error ? err.message : String(err);
+      const msg = `Erro de conexão com o motor local (${detail})`;
+      store.pushLog({ level: "error", message: msg, contact: to });
+      throw new Error(msg);
     }
+    let payload: { status?: string; success?: boolean; ok?: boolean; error?: string; message?: string } | null = null;
+    try { payload = await res.json(); } catch { /* sem corpo */ }
+    if (!res.ok) {
+      const reason = payload?.error || payload?.message || `HTTP ${res.status}`;
+      store.pushLog({ level: "error", message: `Falha ao enviar: ${reason}`, contact: to });
+      throw new Error(reason);
+    }
+    const ok = payload?.status === "sucesso" || payload?.status === "success" || payload?.success === true || payload?.ok === true;
+    if (!ok) {
+      const reason = payload?.error || payload?.message || `Status inesperado: ${payload?.status ?? "desconhecido"}`;
+      store.pushLog({ level: "error", message: `Falha ao enviar: ${reason}`, contact: to });
+      throw new Error(reason);
+    }
+    store.pushLog({ level: "success", message: "Mensagem enviada.", contact: to });
+    return payload;
   },
   async sendMedia(chatId: string, file: File, caption: string) {
     const cleanId = sanitizePhoneNumber(chatId) || chatId;
