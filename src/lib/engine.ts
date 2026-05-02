@@ -6,6 +6,7 @@
  *  - simulation fallback when the engine is offline (so the UI stays usable)
  */
 import { useEffect, useRef } from "react";
+import { toast } from "sonner";
 import { useAppStore, type ChatMessage, type Conversation, type CustomField, type PipelineStage, type Tag } from "@/store/appStore";
 
 // Força HTTP (sem TLS) para evitar bloqueios de certificado em localhost.
@@ -280,20 +281,30 @@ export const api = {
       throw new Error(msg);
     }
     const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/send`;
+    const payloadOut = { numero: to, mensagem };
+    console.log("[ENGINE] POST", url, payloadOut);
     let res: Response;
     try {
       res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ numero: to, mensagem }),
+        mode: "cors",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(payloadOut),
       });
     } catch (err) {
-      // Erro de rede — motor desligado, porta bloqueada, CORS, etc.
+      // Erro de rede — motor desligado, porta bloqueada, CORS, mixed-content, etc.
       const detail = err instanceof Error ? err.message : String(err);
       const msg = `Erro de conexão com o motor local (${detail})`;
+      console.error("[ENGINE] fetch falhou:", err);
       store.pushLog({ level: "error", message: msg, contact: to });
+      try { toast.error(msg); } catch { /* ignore */ }
       throw new Error(msg);
     }
+    console.log("[ENGINE] resposta HTTP", res.status, res.statusText);
     let payload: { status?: string; success?: boolean; ok?: boolean; error?: string; message?: string } | null = null;
     try { payload = await res.json(); } catch { /* sem corpo */ }
     if (!res.ok) {
