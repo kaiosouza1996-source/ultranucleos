@@ -410,14 +410,25 @@ export function startCampaign(params: CampaignParams) {
   const tpl = store.templates.find((t) => t.id === params.templateId);
   if (!tpl || contacts.length === 0) return;
 
+  // Caminho 1 — motor online via WS: delega para o backend (intervalo, anti-ban etc.)
   if (engineClient.send({ type: "start-campaign", contacts, template: tpl, settings: store.settings })) {
     store.resetCampaign();
     store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
-    store.pushLog({ level: "info", message: `Campanha iniciada: ${contacts.length} contatos.` });
+    store.pushLog({ level: "info", message: `Campanha iniciada no motor: ${contacts.length} contatos.` });
     return;
   }
 
-  // mock fallback
+  // Caminho 2 — motor online via HTTP, mas WS caído: dispara em loop usando POST /send
+  if (store.engineOnline) {
+    store.resetCampaign();
+    store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
+    store.pushLog({ level: "info", message: `Campanha iniciada via HTTP (${contacts.length} contatos).` });
+    runHttpCampaign(contacts, tpl.body, store.settings);
+    return;
+  }
+
+  // Caminho 3 — motor offline: simulação (mantém UI usável)
+  store.pushLog({ level: "error", message: "Erro de conexão com o motor local — usando simulação." });
   store.resetCampaign();
   store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
   store.pushLog({ level: "info", message: `Campanha SIMULADA iniciada (${contacts.length} contatos).` });
@@ -448,6 +459,43 @@ export function startCampaign(params: CampaignParams) {
     mockCampaignTimer = window.setTimeout(tick, min + Math.random() * (max - min));
   };
   tick();
+}
+
+/** Loop HTTP que dispara para cada contato via POST /send, respeitando intervalo/anti-ban. */
+async function runHttpCampaign(
+  contacts: { id: string; nome: string; telefone: string }[],
+  templateBody: string,
+  settings: { minDelay: number; maxDelay: number; longPauseEvery: number; longPauseSeconds: number },
+) {
+  let sent = 0, failed = 0;
+  const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+  for (let i = 0; i < contacts.length; i++) {
+    const s = useAppStore.getState();
+    if (!s.campaign.running) break;
+    while (useAppStore.getState().campaign.paused) await sleep(800);
+    const c = contacts[i];
+    const text = renderTemplate(templateBody, c.nome);
+    s.setCampaign({ currentContact: `${c.nome} (${c.telefone})`, sent, failed });
+    s.pushLog({ level: "info", message: `Enviando para ${c.nome}…`, contact: c.telefone });
+    try {
+      await api.sendToNumber(c.telefone, text);
+      sent++;
+    } catch {
+      failed++;
+    }
+    useAppStore.getState().setCampaign({ sent, failed });
+    if (settings.longPauseEvery && (i + 1) % settings.longPauseEvery === 0) {
+      useAppStore.getState().pushLog({ level: "info", message: `Pausa longa de ~${settings.longPauseSeconds}s` });
+      await sleep(settings.longPauseSeconds * 1000);
+    } else {
+      const min = settings.minDelay * 1000;
+      const max = settings.maxDelay * 1000;
+      await sleep(min + Math.random() * Math.max(0, max - min));
+    }
+  }
+  const fin = useAppStore.getState();
+  fin.setCampaign({ running: false, paused: false });
+  fin.pushLog({ level: "success", message: `Campanha finalizada: ${sent} enviadas, ${failed} erros.` });
 }
 
 function stopMockCampaign() {
