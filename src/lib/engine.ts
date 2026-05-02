@@ -6,6 +6,7 @@
  *  - simulation fallback when the engine is offline (so the UI stays usable)
  */
 import { useEffect, useRef } from "react";
+import { toast } from "sonner";
 import { useAppStore, type ChatMessage, type Conversation, type CustomField, type PipelineStage, type Tag } from "@/store/appStore";
 
 // Força HTTP (sem TLS) para evitar bloqueios de certificado em localhost.
@@ -280,20 +281,30 @@ export const api = {
       throw new Error(msg);
     }
     const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/send`;
+    const payloadOut = { numero: to, mensagem };
+    console.log("[ENGINE] POST", url, payloadOut);
     let res: Response;
     try {
       res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ numero: to, mensagem }),
+        mode: "cors",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(payloadOut),
       });
     } catch (err) {
-      // Erro de rede — motor desligado, porta bloqueada, CORS, etc.
+      // Erro de rede — motor desligado, porta bloqueada, CORS, mixed-content, etc.
       const detail = err instanceof Error ? err.message : String(err);
       const msg = `Erro de conexão com o motor local (${detail})`;
+      console.error("[ENGINE] fetch falhou:", err);
       store.pushLog({ level: "error", message: msg, contact: to });
+      try { toast.error(msg); } catch { /* ignore */ }
       throw new Error(msg);
     }
+    console.log("[ENGINE] resposta HTTP", res.status, res.statusText);
     let payload: { status?: string; success?: boolean; ok?: boolean; error?: string; message?: string } | null = null;
     try { payload = await res.json(); } catch { /* sem corpo */ }
     if (!res.ok) {
@@ -520,11 +531,58 @@ export function renderTemplate(body: string, nome: string): string {
   return body.replace(/\{nome\}/gi, nome);
 }
 
+let healthTimer: number | null = null;
+let lastHealthOk: boolean | null = null;
+
+async function pingHealth() {
+  const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/health`;
+  try {
+    const ctrl = new AbortController();
+    const t = window.setTimeout(() => ctrl.abort(), 3000);
+    const res = await fetch(url, { method: "GET", cache: "no-store", signal: ctrl.signal });
+    window.clearTimeout(t);
+    const ok = res.ok;
+    const store = useAppStore.getState();
+    if (ok) {
+      if (lastHealthOk !== true) {
+        console.log("[ENGINE] /health OK — motor online");
+        store.pushLog({ level: "success", message: "Motor local respondendo em /health." });
+        // Se a UI estava marcada como offline, força reconexão WS imediata
+        if (!store.engineOnline) {
+          store.setEngineOnline(true);
+          if (!engineClient.ws || engineClient.ws.readyState !== WebSocket.OPEN) {
+            try { engineClient.connect(); } catch { /* ignore */ }
+          }
+        }
+      }
+      lastHealthOk = true;
+    } else {
+      throw new Error(`HTTP ${res.status}`);
+    }
+  } catch (err) {
+    if (lastHealthOk !== false) {
+      console.warn("[ENGINE] /health indisponível:", err);
+      const store = useAppStore.getState();
+      if (store.engineOnline) {
+        store.setEngineOnline(false);
+        store.pushLog({ level: "warn", message: "Motor local não responde em /health." });
+      }
+    }
+    lastHealthOk = false;
+  }
+}
+
 export function useEngineBootstrap() {
   const started = useRef(false);
   useEffect(() => {
     if (started.current) return;
     started.current = true;
     engineClient.connect();
+    // Polling de health a cada 5s para restabelecer o indicador visual.
+    pingHealth();
+    healthTimer = window.setInterval(pingHealth, 5000);
+    return () => {
+      if (healthTimer) { window.clearInterval(healthTimer); healthTimer = null; }
+    };
   }, []);
 }
