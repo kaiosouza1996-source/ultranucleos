@@ -8,8 +8,18 @@
 import { useEffect, useRef } from "react";
 import { useAppStore, type ChatMessage, type Conversation, type CustomField, type PipelineStage, type Tag } from "@/store/appStore";
 
+// Força HTTP (sem TLS) para evitar bloqueios de certificado em localhost.
 export const ENGINE_HTTP = "http://localhost:8787";
 export const ENGINE_WS = "ws://localhost:8787/ws";
+
+/**
+ * Limpeza rigorosa de número: remove parênteses, espaços, traços, pontos,
+ * sinais de mais e qualquer caractere não numérico — mantém apenas dígitos.
+ * Ex: "+55 (21) 99999-9999" → "5521999999999"
+ */
+export function sanitizePhoneNumber(raw: string): string {
+  return String(raw ?? "").replace(/\D+/g, "");
+}
 
 interface EngineMessage { type: string; [k: string]: unknown }
 
