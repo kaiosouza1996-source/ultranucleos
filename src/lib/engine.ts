@@ -441,33 +441,6 @@ export function startCampaign(params: CampaignParams) {
   });
   runHttpCampaign(contacts, tpl.body, store.settings);
   return;
-
-  let i = 0; let sent = 0; let failed = 0;
-  const tick = () => {
-    const s = useAppStore.getState();
-    if (!s.campaign.running) { stopMockCampaign(); return; }
-    if (s.campaign.paused) { mockCampaignTimer = window.setTimeout(tick, 1000); return; }
-    if (i >= contacts.length) {
-      s.setCampaign({ running: false, paused: false });
-      s.pushLog({ level: "success", message: `Campanha simulada finalizada: ${sent} enviadas, ${failed} erros.` });
-      stopMockCampaign();
-      return;
-    }
-    const c = contacts[i++];
-    const msg = renderTemplate(tpl.body, c.nome);
-    s.setCampaign({ currentContact: `${c.nome} (${c.telefone})`, sent, failed });
-    s.pushLog({ level: "info", message: `Enviando para ${c.nome}…`, contact: c.telefone });
-    const ok = Math.random() > 0.08;
-    window.setTimeout(() => {
-      if (ok) { sent++; s.pushLog({ level: "success", message: `✓ ${msg.slice(0, 40)}…`, contact: c.telefone }); }
-      else { failed++; s.pushLog({ level: "error", message: `Falha ao enviar`, contact: c.telefone }); }
-      s.setCampaign({ sent, failed });
-    }, 600);
-    const min = s.settings.minDelay * 1000;
-    const max = s.settings.maxDelay * 1000;
-    mockCampaignTimer = window.setTimeout(tick, min + Math.random() * (max - min));
-  };
-  tick();
 }
 
 /** Loop HTTP que dispara para cada contato via POST /send, respeitando intervalo/anti-ban. */
