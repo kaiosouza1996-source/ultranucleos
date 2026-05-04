@@ -45,7 +45,7 @@ export default function Disparos() {
   const handleStart = () => {
     if (!templateId) return toast.error("Selecione um template.");
     if (targets.length === 0) return toast.error("Nenhum contato selecionado.");
-    if (status !== "ready") toast.warning("WhatsApp não está conectado — usando modo simulação.");
+    // Sem trava: o disparo é sempre tentado contra http://localhost:8787/send.
     startCampaign({ contactIds: targets.map((t) => t.id), templateId });
   };
 
