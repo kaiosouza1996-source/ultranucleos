@@ -504,6 +504,12 @@ export function renderTemplate(body: string, nome: string): string {
 let healthTimer: number | null = null;
 let lastHealthOk: boolean | null = null;
 
+/**
+ * Polling silencioso de /health.
+ * - Não gera toast nem log de erro (evita ruído de mixed-content HTTPS→HTTP).
+ * - Atualiza `engineOnline` (isLocalConnected) automaticamente.
+ * - Tenta WS quando o motor responde.
+ */
 async function pingHealth() {
   const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/health`;
   try {
@@ -511,35 +517,24 @@ async function pingHealth() {
     const t = window.setTimeout(() => ctrl.abort(), 3000);
     const res = await fetch(url, { method: "GET", cache: "no-store", signal: ctrl.signal });
     window.clearTimeout(t);
-    const ok = res.ok;
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const store = useAppStore.getState();
-    if (ok) {
-      // Prioridade absoluta: /health respondeu 200 → motor está online,
-      // independentemente do estado do WebSocket ou de qualquer restrição.
-      if (!store.engineOnline) {
-        store.setEngineOnline(true);
-        store.pushLog({ level: "success", message: "Sistema Conectado — motor local respondendo." });
-      }
-      if (lastHealthOk !== true) {
-        console.log("[ENGINE] /health OK — Sistema Conectado");
-        // Tenta WS em paralelo (não bloqueia status visual).
-        if (!engineClient.ws || engineClient.ws.readyState !== WebSocket.OPEN) {
-          try { engineClient.connect(); } catch { /* ignore */ }
-        }
-      }
-      lastHealthOk = true;
-    } else {
-      throw new Error(`HTTP ${res.status}`);
+    if (!store.engineOnline) {
+      store.setEngineOnline(true);
+      store.pushLog({ level: "success", message: "Sistema Conectado — motor local respondendo." });
     }
-  } catch (err) {
-    if (lastHealthOk !== false) {
-      console.warn("[ENGINE] /health indisponível:", err);
-      const store = useAppStore.getState();
-      // Modo forçado: nunca derrubar o status visual.
-      if (store.engineOnline && !store.forcedConnection) {
-        store.setEngineOnline(false);
-        store.pushLog({ level: "warn", message: "Motor local não responde em /health." });
+    if (lastHealthOk !== true) {
+      console.log("[ENGINE] /health OK — Sistema Conectado");
+      if (!engineClient.ws || engineClient.ws.readyState !== WebSocket.OPEN) {
+        try { engineClient.connect(); } catch { /* ignore */ }
       }
+    }
+    lastHealthOk = true;
+  } catch {
+    // Falha silenciosa — sem toast, sem log visível. Apenas baixa o estado.
+    if (lastHealthOk !== false) {
+      const store = useAppStore.getState();
+      if (store.engineOnline) store.setEngineOnline(false);
     }
     lastHealthOk = false;
   }
@@ -551,11 +546,12 @@ export function useEngineBootstrap() {
     if (started.current) return;
     started.current = true;
     engineClient.connect();
-    // Polling de health a cada 5s para restabelecer o indicador visual.
+    // Polling automático e silencioso a cada 15s — zero-config.
     pingHealth();
-    healthTimer = window.setInterval(pingHealth, 5000);
+    healthTimer = window.setInterval(pingHealth, 15000);
     return () => {
       if (healthTimer) { window.clearInterval(healthTimer); healthTimer = null; }
     };
   }, []);
 }
+
