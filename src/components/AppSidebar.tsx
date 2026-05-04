@@ -20,13 +20,22 @@ export function AppSidebar() {
   const pendentes = conversations.filter((c) => c.status === "pendente").length;
 
   return (
-    <aside className="hidden md:flex w-60 shrink-0 flex-col h-screen sticky top-0 border-r border-border/40 bg-sidebar/60 backdrop-blur-xl z-10">
+    <aside className="hidden md:flex w-60 shrink-0 flex-col h-screen sticky top-0 bg-sidebar/60 backdrop-blur-xl z-10 relative">
+      {/* Linha degradê suave separando o menu do painel */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute top-0 right-0 h-full w-px transition-opacity duration-700"
+        style={{
+          background:
+            "linear-gradient(to bottom, transparent 0%, hsl(var(--primary) / 0.05) 12%, hsl(var(--primary) / 0.45) 50%, hsl(var(--primary) / 0.05) 88%, transparent 100%)",
+        }}
+      />
       <div className="px-6 py-6 flex items-center gap-3">
         <div className="w-10 h-10 rounded-xl bg-gradient-primary flex items-center justify-center shadow-glow">
           <Zap className="w-5 h-5 text-primary-foreground" />
         </div>
         <div>
-          <div className="text-sm font-semibold tracking-tight text-foreground">WA Sender</div>
+          <div className="text-sm font-semibold tracking-tight text-foreground">Ultra Núcleos</div>
           <div className="text-[11px] text-muted-foreground uppercase tracking-widest">Pro Edition</div>
         </div>
       </div>
