@@ -429,47 +429,17 @@ export function startCampaign(params: CampaignParams) {
     return;
   }
 
-  // Caminho 2 — motor online via HTTP, mas WS caído: dispara em loop usando POST /send
-  if (store.engineOnline) {
-    store.resetCampaign();
-    store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
-    store.pushLog({ level: "info", message: `Campanha iniciada via HTTP (${contacts.length} contatos).` });
-    runHttpCampaign(contacts, tpl.body, store.settings);
-    return;
-  }
-
-  // Caminho 3 — motor offline: simulação (mantém UI usável)
-  store.pushLog({ level: "error", message: "Erro de conexão com o motor local — usando simulação." });
+  // Caminho 2 — SEMPRE tenta HTTP /send. O motor pode estar online mesmo se
+  // o badge visual disser o contrário (CORS no /health, WS bloqueado, etc.).
+  // O usuário comandou: o disparo precisa chegar ao localhost obrigatoriamente.
   store.resetCampaign();
   store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
-  store.pushLog({ level: "info", message: `Campanha SIMULADA iniciada (${contacts.length} contatos).` });
-
-  let i = 0; let sent = 0; let failed = 0;
-  const tick = () => {
-    const s = useAppStore.getState();
-    if (!s.campaign.running) { stopMockCampaign(); return; }
-    if (s.campaign.paused) { mockCampaignTimer = window.setTimeout(tick, 1000); return; }
-    if (i >= contacts.length) {
-      s.setCampaign({ running: false, paused: false });
-      s.pushLog({ level: "success", message: `Campanha simulada finalizada: ${sent} enviadas, ${failed} erros.` });
-      stopMockCampaign();
-      return;
-    }
-    const c = contacts[i++];
-    const msg = renderTemplate(tpl.body, c.nome);
-    s.setCampaign({ currentContact: `${c.nome} (${c.telefone})`, sent, failed });
-    s.pushLog({ level: "info", message: `Enviando para ${c.nome}…`, contact: c.telefone });
-    const ok = Math.random() > 0.08;
-    window.setTimeout(() => {
-      if (ok) { sent++; s.pushLog({ level: "success", message: `✓ ${msg.slice(0, 40)}…`, contact: c.telefone }); }
-      else { failed++; s.pushLog({ level: "error", message: `Falha ao enviar`, contact: c.telefone }); }
-      s.setCampaign({ sent, failed });
-    }, 600);
-    const min = s.settings.minDelay * 1000;
-    const max = s.settings.maxDelay * 1000;
-    mockCampaignTimer = window.setTimeout(tick, min + Math.random() * (max - min));
-  };
-  tick();
+  store.pushLog({
+    level: "info",
+    message: `Campanha iniciada via HTTP (${contacts.length} contatos) → http://localhost:8787/send`,
+  });
+  runHttpCampaign(contacts, tpl.body, store.settings);
+  return;
 }
 
 /** Loop HTTP que dispara para cada contato via POST /send, respeitando intervalo/anti-ban. */
@@ -544,15 +514,17 @@ async function pingHealth() {
     const ok = res.ok;
     const store = useAppStore.getState();
     if (ok) {
+      // Prioridade absoluta: /health respondeu 200 → motor está online,
+      // independentemente do estado do WebSocket ou de qualquer restrição.
+      if (!store.engineOnline) {
+        store.setEngineOnline(true);
+        store.pushLog({ level: "success", message: "Sistema Conectado — motor local respondendo." });
+      }
       if (lastHealthOk !== true) {
-        console.log("[ENGINE] /health OK — motor online");
-        store.pushLog({ level: "success", message: "Motor local respondendo em /health." });
-        // Se a UI estava marcada como offline, força reconexão WS imediata
-        if (!store.engineOnline) {
-          store.setEngineOnline(true);
-          if (!engineClient.ws || engineClient.ws.readyState !== WebSocket.OPEN) {
-            try { engineClient.connect(); } catch { /* ignore */ }
-          }
+        console.log("[ENGINE] /health OK — Sistema Conectado");
+        // Tenta WS em paralelo (não bloqueia status visual).
+        if (!engineClient.ws || engineClient.ws.readyState !== WebSocket.OPEN) {
+          try { engineClient.connect(); } catch { /* ignore */ }
         }
       }
       lastHealthOk = true;
@@ -563,7 +535,8 @@ async function pingHealth() {
     if (lastHealthOk !== false) {
       console.warn("[ENGINE] /health indisponível:", err);
       const store = useAppStore.getState();
-      if (store.engineOnline) {
+      // Modo forçado: nunca derrubar o status visual.
+      if (store.engineOnline && !store.forcedConnection) {
         store.setEngineOnline(false);
         store.pushLog({ level: "warn", message: "Motor local não responde em /health." });
       }

@@ -20,7 +20,7 @@ export default function Disparos() {
   const templates = useAppStore((s) => s.templates);
   const settings = useAppStore((s) => s.settings);
   const campaign = useAppStore((s) => s.campaign);
-  const status = useAppStore((s) => s.status);
+  // status removido — disparo é sempre tentado contra o motor local.
 
   const tags = useMemo(() => {
     const set = new Set<string>();
@@ -45,7 +45,7 @@ export default function Disparos() {
   const handleStart = () => {
     if (!templateId) return toast.error("Selecione um template.");
     if (targets.length === 0) return toast.error("Nenhum contato selecionado.");
-    if (status !== "ready") toast.warning("WhatsApp não está conectado — usando modo simulação.");
+    // Sem trava: o disparo é sempre tentado contra http://localhost:8787/send.
     startCampaign({ contactIds: targets.map((t) => t.id), templateId });
   };
 
