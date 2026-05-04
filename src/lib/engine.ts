@@ -544,15 +544,17 @@ async function pingHealth() {
     const ok = res.ok;
     const store = useAppStore.getState();
     if (ok) {
+      // Prioridade absoluta: /health respondeu 200 → motor está online,
+      // independentemente do estado do WebSocket ou de qualquer restrição.
+      if (!store.engineOnline) {
+        store.setEngineOnline(true);
+        store.pushLog({ level: "success", message: "Sistema Conectado — motor local respondendo." });
+      }
       if (lastHealthOk !== true) {
-        console.log("[ENGINE] /health OK — motor online");
-        store.pushLog({ level: "success", message: "Motor local respondendo em /health." });
-        // Se a UI estava marcada como offline, força reconexão WS imediata
-        if (!store.engineOnline) {
-          store.setEngineOnline(true);
-          if (!engineClient.ws || engineClient.ws.readyState !== WebSocket.OPEN) {
-            try { engineClient.connect(); } catch { /* ignore */ }
-          }
+        console.log("[ENGINE] /health OK — Sistema Conectado");
+        // Tenta WS em paralelo (não bloqueia status visual).
+        if (!engineClient.ws || engineClient.ws.readyState !== WebSocket.OPEN) {
+          try { engineClient.connect(); } catch { /* ignore */ }
         }
       }
       lastHealthOk = true;
@@ -563,7 +565,8 @@ async function pingHealth() {
     if (lastHealthOk !== false) {
       console.warn("[ENGINE] /health indisponível:", err);
       const store = useAppStore.getState();
-      if (store.engineOnline) {
+      // Modo forçado: nunca derrubar o status visual.
+      if (store.engineOnline && !store.forcedConnection) {
         store.setEngineOnline(false);
         store.pushLog({ level: "warn", message: "Motor local não responde em /health." });
       }
