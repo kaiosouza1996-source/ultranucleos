@@ -15,7 +15,6 @@ const items = [
 
 export function AppSidebar() {
   const { pathname } = useLocation();
-  const status = useAppStore((s) => s.status);
   const conversations = useAppStore((s) => s.conversations);
   const pendentes = conversations.filter((c) => c.status === "pendente").length;
 
@@ -69,26 +68,6 @@ export function AppSidebar() {
         })}
       </nav>
 
-      <div className="p-4 border-t border-border/40">
-        <div className="glass-card p-3 flex items-center gap-3">
-          <span
-            className={`status-dot ${
-              status === "ready" ? "bg-success text-success" :
-              status === "qr" ? "bg-warning text-warning" :
-              status === "connecting" ? "bg-primary text-primary" :
-              "bg-destructive text-destructive"
-            }`}
-          />
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium truncate">
-              {status === "ready" ? "WhatsApp conectado" :
-               status === "qr" ? "Aguardando QR" :
-               status === "connecting" ? "Conectando…" : "Desconectado"}
-            </div>
-            <div className="text-[10px] text-muted-foreground">Sessão local</div>
-          </div>
-        </div>
-      </div>
     </aside>
   );
 }

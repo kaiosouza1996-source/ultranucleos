@@ -123,9 +123,6 @@ interface AppState {
   engineOnline: boolean;
   setEngineOnline: (v: boolean) => void;
 
-  forcedConnection: boolean;
-  setForcedConnection: (v: boolean) => void;
-
   status: ConnectionStatus;
   qr?: string;
   me?: string;
@@ -278,14 +275,6 @@ export const useAppStore = create<AppState>((set, get) => {
   return {
     engineOnline: false,
     setEngineOnline: (v) => set({ engineOnline: v }),
-
-    forcedConnection: (() => {
-      try { return localStorage.getItem("wa-forced-connection") === "1"; } catch { return false; }
-    })(),
-    setForcedConnection: (v) => {
-      try { localStorage.setItem("wa-forced-connection", v ? "1" : "0"); } catch { /* ignore */ }
-      set({ forcedConnection: v });
-    },
 
     status: "disconnected",
     qr: undefined,
