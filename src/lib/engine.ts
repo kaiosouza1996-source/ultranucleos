@@ -425,24 +425,22 @@ export function startCampaign(params: CampaignParams) {
   if (engineClient.send({ type: "start-campaign", contacts, template: tpl, settings: store.settings })) {
     store.resetCampaign();
     store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
+    store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
     store.pushLog({ level: "info", message: `Campanha iniciada no motor: ${contacts.length} contatos.` });
     return;
   }
 
-  // Caminho 2 — motor online via HTTP, mas WS caído: dispara em loop usando POST /send
-  if (store.engineOnline) {
-    store.resetCampaign();
-    store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
-    store.pushLog({ level: "info", message: `Campanha iniciada via HTTP (${contacts.length} contatos).` });
-    runHttpCampaign(contacts, tpl.body, store.settings);
-    return;
-  }
-
-  // Caminho 3 — motor offline: simulação (mantém UI usável)
-  store.pushLog({ level: "error", message: "Erro de conexão com o motor local — usando simulação." });
+  // Caminho 2 — SEMPRE tenta HTTP /send. O motor pode estar online mesmo se
+  // o badge visual disser o contrário (CORS no /health, WS bloqueado, etc.).
+  // O usuário comandou: o disparo precisa chegar ao localhost obrigatoriamente.
   store.resetCampaign();
   store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
-  store.pushLog({ level: "info", message: `Campanha SIMULADA iniciada (${contacts.length} contatos).` });
+  store.pushLog({
+    level: "info",
+    message: `Campanha iniciada via HTTP (${contacts.length} contatos) → http://localhost:8787/send`,
+  });
+  runHttpCampaign(contacts, tpl.body, store.settings);
+  return;
 
   let i = 0; let sent = 0; let failed = 0;
   const tick = () => {
