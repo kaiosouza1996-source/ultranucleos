@@ -425,7 +425,6 @@ export function startCampaign(params: CampaignParams) {
   if (engineClient.send({ type: "start-campaign", contacts, template: tpl, settings: store.settings })) {
     store.resetCampaign();
     store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
-    store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
     store.pushLog({ level: "info", message: `Campanha iniciada no motor: ${contacts.length} contatos.` });
     return;
   }
