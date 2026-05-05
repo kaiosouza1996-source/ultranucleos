@@ -195,6 +195,7 @@ interface Persisted {
   contacts: Contact[];
   templates: Template[];
   tags: Tag[];
+  logs?: LogEntry[];
   settings: AntiBanSettings;
   pipelineStages?: PipelineStage[];
   customFields?: CustomField[];
@@ -244,6 +245,7 @@ const loadPersisted = (): Persisted => {
       contacts,
       templates: parsed.templates ?? seedTemplates(),
       tags: parsed.tags ?? [],
+      logs: parsed.logs ?? [],
       settings: { ...defaultSettings, ...(parsed.settings ?? {}) },
       pipelineStages: parsed.pipelineStages?.length ? parsed.pipelineStages : defaultStages,
       customFields: parsed.customFields ?? [],
@@ -262,7 +264,7 @@ const persist = (s: AppState) => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        contacts: s.contacts, templates: s.templates, tags: s.tags, settings: s.settings,
+        contacts: s.contacts, templates: s.templates, tags: s.tags, logs: s.logs.slice(0, 2000), settings: s.settings,
         pipelineStages: s.pipelineStages, customFields: s.customFields,
         pipelineHistory: s.pipelineHistory.slice(0, 1000),
       } satisfies Persisted),
