@@ -49,7 +49,7 @@ export const engineClient = {
       this.ws = ws;
       ws.onopen = () => {
         store.setEngineOnline(true);
-        store.pushLog({ level: "info", message: "Conectado ao motor local (porta 8787)." });
+        store.pushLog({ level: "info", message: "Conectado ao Sistema local (porta 8787)." });
         stopMockTimers();
         reconnectAttempts = 0;
         if (heartbeatTimer) window.clearInterval(heartbeatTimer);
@@ -69,13 +69,13 @@ export const engineClient = {
       };
       ws.onerror = () => { /* handled in onclose */ };
       ws.onclose = () => {
-        if (store.engineOnline) {
-          store.pushLog({ level: "warn", message: "Motor local desconectado. Modo simulação ativo." });
+        if (store.engineOnline && lastHealthOk !== true) {
+          store.pushLog({ level: "warn", message: "Sistema local desconectado. Modo simulação ativo." });
+          store.setEngineOnline(false);
         }
-        store.setEngineOnline(false);
         this.ws = null;
         if (heartbeatTimer) { window.clearInterval(heartbeatTimer); heartbeatTimer = null; }
-        startMockMode();
+        if (lastHealthOk !== true) startMockMode();
         // Backoff: 2s, 4s, 8s, max 15s
         reconnectAttempts++;
         const delay = Math.min(15000, 2000 * Math.pow(1.5, Math.min(reconnectAttempts, 6)));
@@ -218,7 +218,9 @@ export const api = {
   },
   async loadContacts() {
     const data = await fetchJson<unknown[]>("/contacts");
-    return data;
+    const contacts = data.map(normalizeEngineContact).filter(Boolean) as ReturnType<typeof normalizeEngineContact>[];
+    useAppStore.getState().setContacts(contacts);
+    return contacts;
   },
   async loadConversations() {
     const data = await fetchJson<Conversation[]>("/conversations");
