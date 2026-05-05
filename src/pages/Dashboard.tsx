@@ -194,7 +194,7 @@ export default function Dashboard() {
           <h3 className="text-base font-semibold mb-1">Funil do CRM</h3>
           <p className="text-xs text-muted-foreground mb-4">Contatos por etapa do pipeline</p>
           {funnel.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-8 text-center">Conecte o motor local para ver o funil.</p>
+            <p className="text-xs text-muted-foreground py-8 text-center">Cadastre ou importe contatos para ver o funil.</p>
           ) : (
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -219,7 +219,7 @@ export default function Dashboard() {
             <ul className="space-y-2">
               {topTags.map((t) => (
                 <li key={t.nome} className="flex items-center gap-3 p-2 rounded-lg bg-muted/20 border border-border/30">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: t.cor }} />
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: t.cor.startsWith("hsl") ? t.cor : `hsl(${t.cor})` }} />
                   <span className="text-sm font-medium truncate flex-1">#{t.nome}</span>
                   <span className="text-xs text-muted-foreground">{t.count} contatos</span>
                 </li>
