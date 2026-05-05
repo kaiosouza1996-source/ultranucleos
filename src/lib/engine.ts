@@ -215,7 +215,10 @@ export const api = {
         fetchJson<PipelineStage[]>("/pipeline/stages").catch(() => null),
         fetchJson<CustomField[]>("/custom-fields").catch(() => null),
       ]);
-      if (contacts) store.setContacts(contacts.map(normalizeEngineContact).filter(Boolean) as Contact[]);
+      if (contacts) {
+        const normalized = contacts.map(normalizeEngineContact).filter(Boolean) as Contact[];
+        if (normalized.length > 0 || store.contacts.length === 0) store.setContacts(normalized);
+      }
       store.setTags(tags);
       store.setConversations(conversations);
       if (stages?.length) store.setPipelineStages(stages);
@@ -244,8 +247,9 @@ export const api = {
   },
   async loadContacts() {
     const data = await fetchJson<unknown[]>("/contacts");
-    const contacts = data.map(normalizeEngineContact).filter(Boolean) as ReturnType<typeof normalizeEngineContact>[];
-    useAppStore.getState().setContacts(contacts);
+    const contacts = data.map(normalizeEngineContact).filter(Boolean) as Contact[];
+    const store = useAppStore.getState();
+    if (contacts.length > 0 || store.contacts.length === 0) store.setContacts(contacts);
     return contacts;
   },
   async loadConversations() {
