@@ -579,8 +579,8 @@ async function pingHealth() {
     if (healthFailures >= 3 && Date.now() - lastHealthSuccessAt > 20000) {
       const store = useAppStore.getState();
       if (store.engineOnline) store.setEngineOnline(false);
+      lastHealthOk = false;
     }
-    lastHealthOk = false;
   }
 }
 
