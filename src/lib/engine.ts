@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { useAppStore, type ChatMessage, type Conversation, type CustomField, type PipelineStage, type Tag } from "@/store/appStore";
+import { useAppStore, type ChatMessage, type Contact, type Conversation, type CustomField, type PipelineStage, type Tag } from "@/store/appStore";
 
 // Força HTTP (sem TLS) para evitar bloqueios de certificado em localhost.
 export const ENGINE_HTTP = "http://localhost:8787";
@@ -20,6 +20,30 @@ export const ENGINE_WS = "ws://localhost:8787/ws";
  */
 export function sanitizePhoneNumber(raw: string): string {
   return String(raw ?? "").replace(/\D+/g, "");
+}
+
+function normalizeEngineContact(raw: unknown): Contact | null {
+  if (!raw || typeof raw !== "object") return null;
+  const c = raw as Partial<Contact> & { created_at?: number; tag_names?: string };
+  const telefone = sanitizePhoneNumber(String(c.telefone ?? ""));
+  if (!telefone) return null;
+  const tags = Array.isArray(c.tags)
+    ? c.tags.map(String).filter(Boolean)
+    : c.tag_names ? c.tag_names.split(",").map((t) => t.trim()).filter(Boolean) : [];
+  return {
+    id: String(c.id ?? telefone),
+    nome: String(c.nome ?? telefone),
+    telefone,
+    email: c.email,
+    documento: c.documento,
+    empresa: c.empresa,
+    origem: c.origem,
+    status: c.status ?? "novo",
+    observacoes: c.observacoes,
+    tags,
+    customData: c.customData,
+    createdAt: Number(c.createdAt ?? c.created_at ?? Date.now()),
+  };
 }
 
 interface EngineMessage { type: string; [k: string]: unknown }
@@ -49,7 +73,7 @@ export const engineClient = {
       this.ws = ws;
       ws.onopen = () => {
         store.setEngineOnline(true);
-        store.pushLog({ level: "info", message: "Conectado ao motor local (porta 8787)." });
+        store.pushLog({ level: "info", message: "Conectado ao Sistema local (porta 8787)." });
         stopMockTimers();
         reconnectAttempts = 0;
         if (heartbeatTimer) window.clearInterval(heartbeatTimer);
@@ -69,13 +93,13 @@ export const engineClient = {
       };
       ws.onerror = () => { /* handled in onclose */ };
       ws.onclose = () => {
-        if (store.engineOnline) {
-          store.pushLog({ level: "warn", message: "Motor local desconectado. Modo simulação ativo." });
+        if (store.engineOnline && lastHealthOk !== true) {
+          store.pushLog({ level: "warn", message: "Sistema local desconectado. Modo simulação ativo." });
+          store.setEngineOnline(false);
         }
-        store.setEngineOnline(false);
         this.ws = null;
         if (heartbeatTimer) { window.clearInterval(heartbeatTimer); heartbeatTimer = null; }
-        startMockMode();
+        if (lastHealthOk !== true) startMockMode();
         // Backoff: 2s, 4s, 8s, max 15s
         reconnectAttempts++;
         const delay = Math.min(15000, 2000 * Math.pow(1.5, Math.min(reconnectAttempts, 6)));
@@ -161,7 +185,7 @@ function handleEngineMessage(msg: EngineMessage) {
 // ─────────────────── REST helpers ───────────────────
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  // Garante que sempre usamos http:// (nunca https) para o motor local.
+  // Garante que sempre usamos http:// (nunca https) para o Sistema local.
   const url = ENGINE_HTTP.replace(/^https:/, "http:") + path;
   const res = await fetch(url, {
     ...init,
@@ -184,12 +208,17 @@ export const api = {
     const store = useAppStore.getState();
     if (!store.engineOnline) return;
     try {
-      const [tags, conversations, stages, fields] = await Promise.all([
+      const [contacts, tags, conversations, stages, fields] = await Promise.all([
+        fetchJson<unknown[]>("/contacts").catch(() => null),
         fetchJson<Tag[]>("/tags"),
         fetchJson<Conversation[]>("/conversations"),
         fetchJson<PipelineStage[]>("/pipeline/stages").catch(() => null),
         fetchJson<CustomField[]>("/custom-fields").catch(() => null),
       ]);
+      if (contacts) {
+        const normalized = contacts.map(normalizeEngineContact).filter(Boolean) as Contact[];
+        if (normalized.length > 0 || store.contacts.length === 0) store.setContacts(normalized);
+      }
       store.setTags(tags);
       store.setConversations(conversations);
       if (stages?.length) store.setPipelineStages(stages);
@@ -218,7 +247,10 @@ export const api = {
   },
   async loadContacts() {
     const data = await fetchJson<unknown[]>("/contacts");
-    return data;
+    const contacts = data.map(normalizeEngineContact).filter(Boolean) as Contact[];
+    const store = useAppStore.getState();
+    if (contacts.length > 0 || store.contacts.length === 0) store.setContacts(contacts);
+    return contacts;
   },
   async loadConversations() {
     const data = await fetchJson<Conversation[]>("/conversations");
@@ -252,23 +284,25 @@ export const api = {
         `/conversations/${encodeURIComponent(cleanId)}/send`,
         { method: "POST", body: JSON.stringify({ body, to: cleanId }) },
       );
-      // Mesmo com 200, validar se o motor confirmou sucesso.
+      // Mesmo com 200, validar se o Sistema confirmou sucesso.
       const ok = resp?.status === "sucesso" || resp?.status === "success" || resp?.success === true;
       if (!ok) {
         const reason = resp?.error || resp?.message || `Status inesperado: ${resp?.status ?? "desconhecido"}`;
         useAppStore.getState().pushLog({ level: "error", message: `Falha ao enviar: ${reason}`, contact: cleanId });
         throw new Error(reason);
       }
+      useAppStore.getState().setEngineOnline(true);
+      useAppStore.getState().setStatus("ready");
       useAppStore.getState().pushLog({ level: "success", message: "Mensagem enviada.", contact: cleanId });
       return resp;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      useAppStore.getState().pushLog({ level: "error", message: `Erro do motor: ${msg}`, contact: cleanId });
+      useAppStore.getState().pushLog({ level: "error", message: `Erro do Sistema: ${msg}`, contact: cleanId });
       throw err;
     }
   },
   /**
-   * Envia mensagem direta para um número (rota POST /send do motor local).
+   * Envia mensagem direta para um número (rota POST /send do Sistema local).
    * Payload: { numero: "5521999999999", mensagem: "..." }
    * Sanitiza telefone, valida resposta e gera logs claros (incluindo erro de rede).
    */
@@ -296,9 +330,9 @@ export const api = {
         body: JSON.stringify(payloadOut),
       });
     } catch (err) {
-      // Erro de rede — motor desligado, porta bloqueada, CORS, mixed-content, etc.
+      // Erro de rede — Sistema desligado, porta bloqueada, CORS, mixed-content, etc.
       const detail = err instanceof Error ? err.message : String(err);
-      const msg = `Erro de conexão com o motor local (${detail})`;
+      const msg = `Erro de conexão com o Sistema local (${detail})`;
       console.error("[ENGINE] fetch falhou:", err);
       store.pushLog({ level: "error", message: msg, contact: to });
       try { toast.error(msg); } catch { /* ignore */ }
@@ -318,6 +352,8 @@ export const api = {
       store.pushLog({ level: "error", message: `Falha ao enviar: ${reason}`, contact: to });
       throw new Error(reason);
     }
+    store.setEngineOnline(true);
+    store.setStatus("ready");
     store.pushLog({ level: "success", message: "Mensagem enviada.", contact: to });
     return payload;
   },
@@ -404,7 +440,7 @@ function startMockMode() {
 export function mockConnectWhatsApp() {
   const store = useAppStore.getState();
   store.setStatus("ready", { me: "Demo (modo simulação)" });
-  store.pushLog({ level: "success", message: "Conexão simulada estabelecida (sem motor local)." });
+  store.pushLog({ level: "success", message: "Conexão simulada estabelecida (sem Sistema local)." });
 }
 export function mockDisconnect() {
   const store = useAppStore.getState();
@@ -421,15 +457,15 @@ export function startCampaign(params: CampaignParams) {
   const tpl = store.templates.find((t) => t.id === params.templateId);
   if (!tpl || contacts.length === 0) return;
 
-  // Caminho 1 — motor online via WS: delega para o backend (intervalo, anti-ban etc.)
+  // Caminho 1 — Sistema online via WS: delega para o backend (intervalo, anti-ban etc.)
   if (engineClient.send({ type: "start-campaign", contacts, template: tpl, settings: store.settings })) {
     store.resetCampaign();
     store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
-    store.pushLog({ level: "info", message: `Campanha iniciada no motor: ${contacts.length} contatos.` });
+    store.pushLog({ level: "info", message: `Campanha iniciada no Sistema: ${contacts.length} contatos.` });
     return;
   }
 
-  // Caminho 2 — SEMPRE tenta HTTP /send. O motor pode estar online mesmo se
+  // Caminho 2 — SEMPRE tenta HTTP /send. O Sistema pode estar online mesmo se
   // o badge visual disser o contrário (CORS no /health, WS bloqueado, etc.).
   // O usuário comandou: o disparo precisa chegar ao localhost obrigatoriamente.
   store.resetCampaign();
@@ -503,12 +539,24 @@ export function renderTemplate(body: string, nome: string): string {
 
 let healthTimer: number | null = null;
 let lastHealthOk: boolean | null = null;
+let healthFailures = 0;
+let lastHealthSuccessAt = 0;
+
+async function syncSystemStatus() {
+  try {
+    const data = await fetchJson<{ whatsapp?: string; me?: string; qr?: string | null }>("/status");
+    const whatsapp = data.whatsapp === "ready" || data.whatsapp === "qr" || data.whatsapp === "connecting"
+      ? data.whatsapp
+      : "disconnected";
+    useAppStore.getState().setStatus(whatsapp, { me: data.me, qr: data.qr || undefined });
+  } catch { /* silencioso */ }
+}
 
 /**
  * Polling silencioso de /health.
  * - Não gera toast nem log de erro (evita ruído de mixed-content HTTPS→HTTP).
  * - Atualiza `engineOnline` (isLocalConnected) automaticamente.
- * - Tenta WS quando o motor responde.
+ * - Tenta WS quando o Sistema responde.
  */
 async function pingHealth() {
   const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/health`;
@@ -521,8 +569,11 @@ async function pingHealth() {
     const store = useAppStore.getState();
     if (!store.engineOnline) {
       store.setEngineOnline(true);
-      store.pushLog({ level: "success", message: "Sistema Conectado — motor local respondendo." });
+      store.pushLog({ level: "success", message: "Sistema Conectado — Sistema local respondendo." });
     }
+    healthFailures = 0;
+    lastHealthSuccessAt = Date.now();
+    void syncSystemStatus();
     if (lastHealthOk !== true) {
       console.log("[ENGINE] /health OK — Sistema Conectado");
       if (!engineClient.ws || engineClient.ws.readyState !== WebSocket.OPEN) {
@@ -532,11 +583,12 @@ async function pingHealth() {
     lastHealthOk = true;
   } catch {
     // Falha silenciosa — sem toast, sem log visível. Apenas baixa o estado.
-    if (lastHealthOk !== false) {
+    healthFailures += 1;
+    if (healthFailures >= 3 && Date.now() - lastHealthSuccessAt > 20000) {
       const store = useAppStore.getState();
       if (store.engineOnline) store.setEngineOnline(false);
+      lastHealthOk = false;
     }
-    lastHealthOk = false;
   }
 }
 
@@ -546,9 +598,9 @@ export function useEngineBootstrap() {
     if (started.current) return;
     started.current = true;
     engineClient.connect();
-    // Polling automático e silencioso a cada 15s — zero-config.
+    // Polling automático e silencioso a cada 5s — zero-config e estável.
     pingHealth();
-    healthTimer = window.setInterval(pingHealth, 15000);
+    healthTimer = window.setInterval(pingHealth, 5000);
     return () => {
       if (healthTimer) { window.clearInterval(healthTimer); healthTimer = null; }
     };

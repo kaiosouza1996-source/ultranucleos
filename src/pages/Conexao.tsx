@@ -69,7 +69,7 @@ export default function Conexao() {
           <div className="glass-card p-6 animate-fade-in">
             <h3 className="font-semibold mb-3">Como funciona</h3>
             <ol className="space-y-3 text-sm text-muted-foreground list-decimal list-inside">
-              <li>Inicie o motor local: <code className="px-1.5 py-0.5 rounded bg-muted text-foreground text-xs">npm start</code> dentro de <code className="px-1.5 py-0.5 rounded bg-muted text-foreground text-xs">whatsapp-engine/</code></li>
+              <li>Inicie o Sistema local: <code className="px-1.5 py-0.5 rounded bg-muted text-foreground text-xs">npm start</code> dentro de <code className="px-1.5 py-0.5 rounded bg-muted text-foreground text-xs">whatsapp-engine/</code></li>
               <li>O painel se conecta automaticamente em <code className="px-1.5 py-0.5 rounded bg-muted text-foreground text-xs">ws://localhost:8787</code></li>
               <li>Escaneie o QR Code uma única vez — a sessão fica salva</li>
               <li>Importe contatos, configure mensagens e inicie disparos</li>
@@ -77,14 +77,14 @@ export default function Conexao() {
           </div>
 
           <div className="glass-card p-6 animate-fade-in">
-            <h3 className="font-semibold mb-3">Status do motor</h3>
+            <h3 className="font-semibold mb-3">Status do Sistema</h3>
             <div className="flex items-center gap-3 text-sm">
               <span className={`status-dot ${engineOnline ? "bg-success text-success" : "bg-warning text-warning"}`} />
-              <span>{engineOnline ? "Conectado em ws://localhost:8787" : "Motor offline — modo simulação ativo"}</span>
+              <span>{engineOnline ? "Conectado em ws://localhost:8787" : "Sistema offline — modo simulação ativo"}</span>
             </div>
             {!engineOnline && (
               <p className="text-xs text-muted-foreground mt-3">
-                Você pode navegar e configurar tudo. Os disparos só atingem o WhatsApp real quando o motor local estiver rodando.
+                Você pode navegar e configurar tudo. Os disparos só atingem o WhatsApp real quando o Sistema local estiver rodando.
               </p>
             )}
           </div>

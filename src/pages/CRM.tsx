@@ -1,5 +1,4 @@
 import { AppHeader } from "@/components/AppHeader";
-import { WhatsAppStatusBadge } from "@/components/WhatsAppStatusBadge";
 import { useAppStore, type Contact, type CustomField, type PipelineStage } from "@/store/appStore";
 import { useMemo, useState } from "react";
 import { Briefcase, Search, Pencil, X, Plus, History, Settings2 } from "lucide-react";
@@ -79,10 +78,6 @@ export default function CRM() {
   return (
     <>
       <AppHeader title="CRM" subtitle="Pipeline visual — arraste contatos entre as etapas" />
-
-      <div className="mb-4 flex items-center gap-2">
-        <WhatsAppStatusBadge />
-      </div>
 
       <div className="glass-card p-3 mb-4 flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px]">

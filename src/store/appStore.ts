@@ -195,6 +195,8 @@ interface Persisted {
   contacts: Contact[];
   templates: Template[];
   tags: Tag[];
+  logs?: LogEntry[];
+  conversations?: Conversation[];
   settings: AntiBanSettings;
   pipelineStages?: PipelineStage[];
   customFields?: CustomField[];
@@ -244,6 +246,8 @@ const loadPersisted = (): Persisted => {
       contacts,
       templates: parsed.templates ?? seedTemplates(),
       tags: parsed.tags ?? [],
+      logs: parsed.logs ?? [],
+      conversations: parsed.conversations ?? [],
       settings: { ...defaultSettings, ...(parsed.settings ?? {}) },
       pipelineStages: parsed.pipelineStages?.length ? parsed.pipelineStages : defaultStages,
       customFields: parsed.customFields ?? [],
@@ -262,7 +266,8 @@ const persist = (s: AppState) => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        contacts: s.contacts, templates: s.templates, tags: s.tags, settings: s.settings,
+        contacts: s.contacts, templates: s.templates, tags: s.tags, logs: s.logs.slice(0, 2000), conversations: s.conversations,
+        settings: s.settings,
         pipelineStages: s.pipelineStages, customFields: s.customFields,
         pipelineHistory: s.pipelineHistory.slice(0, 1000),
       } satisfies Persisted),
@@ -324,8 +329,8 @@ export const useAppStore = create<AppState>((set, get) => {
     quickReplies: [],
     setQuickReplies: (q) => set({ quickReplies: q }),
 
-    conversations: [],
-    setConversations: (c) => set({ conversations: c }),
+    conversations: initial.conversations ?? [],
+    setConversations: (c) => { set({ conversations: c }); persist({ ...get(), conversations: c }); },
 
     messagesByChat: {},
     setMessages: (chatId, msgs) => set((st) => ({ messagesByChat: { ...st.messagesByChat, [chatId]: msgs } })),
@@ -335,11 +340,13 @@ export const useAppStore = create<AppState>((set, get) => {
       return { messagesByChat: { ...st.messagesByChat, [m.chat_id]: [...list, m] } };
     }),
 
-    logs: [],
-    pushLog: (l) => set((st) => ({
-      logs: [{ id: crypto.randomUUID(), ts: l.ts ?? Date.now(), level: l.level, message: l.message, contact: l.contact }, ...st.logs].slice(0, 500),
-    })),
-    clearLogs: () => set({ logs: [] }),
+    logs: initial.logs ?? [],
+    pushLog: (l) => {
+      const next = [{ id: crypto.randomUUID(), ts: l.ts ?? Date.now(), level: l.level, message: l.message, contact: l.contact }, ...get().logs].slice(0, 2000);
+      set({ logs: next });
+      persist({ ...get(), logs: next });
+    },
+    clearLogs: () => { set({ logs: [] }); persist({ ...get(), logs: [] }); },
 
     campaign: { running: false, paused: false, total: 0, sent: 0, failed: 0 },
     setCampaign: (c) => set((st) => ({ campaign: { ...st.campaign, ...c } })),

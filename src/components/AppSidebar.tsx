@@ -34,8 +34,7 @@ export function AppSidebar() {
           <Zap className="w-5 h-5 text-primary-foreground" />
         </div>
         <div>
-          <div className="text-sm font-semibold tracking-tight text-foreground">Ultra Núcleos</div>
-          <div className="text-[11px] text-muted-foreground uppercase tracking-widest">Pro Edition</div>
+          <div className="text-sm font-semibold tracking-tight text-foreground">Ultra Nucleos</div>
         </div>
       </div>
 

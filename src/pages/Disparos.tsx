@@ -20,7 +20,7 @@ export default function Disparos() {
   const templates = useAppStore((s) => s.templates);
   const settings = useAppStore((s) => s.settings);
   const campaign = useAppStore((s) => s.campaign);
-  // status removido — disparo é sempre tentado contra o motor local.
+  // status removido — disparo é sempre tentado contra o Sistema local.
 
   const tags = useMemo(() => {
     const set = new Set<string>();

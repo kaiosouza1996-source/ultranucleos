@@ -26,12 +26,12 @@ export default function Configuracoes() {
     if (location.hash === "#crm") setTab("crm");
     else if (location.pathname === "/conexao") setTab("conexao");
     else if (location.pathname === "/logs") setTab("logs");
-    else if (location.hash === "#motor") setTab("motor");
+    else if (location.hash === "#Sistema") setTab("Sistema");
   }, [location.hash, location.pathname]);
 
   return (
     <>
-      <AppHeader title="Configurações" subtitle="Conexão, anti-ban, CRM, logs e motor local" />
+      <AppHeader title="Configurações" subtitle="Conexão, anti-ban, CRM, logs e Sistema local" />
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-4">
         <TabsList className="bg-muted/30 flex-wrap h-auto">
@@ -39,7 +39,7 @@ export default function Configuracoes() {
           <TabsTrigger value="anti-ban"><Shield className="w-3.5 h-3.5 mr-1.5" /> Anti-ban</TabsTrigger>
           <TabsTrigger value="crm"><Briefcase className="w-3.5 h-3.5 mr-1.5" /> CRM</TabsTrigger>
           <TabsTrigger value="logs"><ScrollText className="w-3.5 h-3.5 mr-1.5" /> Logs</TabsTrigger>
-          <TabsTrigger value="motor">Motor local</TabsTrigger>
+          <TabsTrigger value="Sistema">Sistema local</TabsTrigger>
         </TabsList>
 
         <TabsContent value="conexao" className="space-y-4">
@@ -84,12 +84,12 @@ export default function Configuracoes() {
           <CustomFieldsEditor />
         </TabsContent>
 
-        {/* ─────────── Motor + reset ─────────── */}
-        <TabsContent value="motor" className="space-y-4">
+        {/* ─────────── Sistema + reset ─────────── */}
+        <TabsContent value="Sistema" className="space-y-4">
           <div className="glass-card p-6 animate-fade-in">
-            <h3 className="font-semibold mb-3">Motor local</h3>
+            <h3 className="font-semibold mb-3">Sistema local</h3>
             <p className="text-sm text-muted-foreground mb-3">
-              O motor roda separadamente em <code className="px-1.5 py-0.5 rounded bg-muted text-foreground text-xs">whatsapp-engine/</code>.
+              O Sistema roda separadamente em <code className="px-1.5 py-0.5 rounded bg-muted text-foreground text-xs">whatsapp-engine/</code>.
               Inicie com:
             </p>
             <pre className="text-xs bg-muted/40 rounded p-3"><code>cd whatsapp-engine
@@ -432,10 +432,10 @@ function ConexaoSection() {
       </div>
 
       <div className="glass-card p-5 animate-fade-in">
-        <h3 className="font-semibold mb-3">Status do motor</h3>
+        <h3 className="font-semibold mb-3">Status do Sistema</h3>
         <div className="flex items-center gap-3 text-sm mb-4">
           <span className={`status-dot ${engineOnline ? "bg-success text-success" : "bg-warning text-warning"}`} />
-          <span>{engineOnline ? "ws://localhost:8787 conectado" : "Motor offline — simulação"}</span>
+          <span>{engineOnline ? "ws://localhost:8787 conectado" : "Sistema offline — simulação"}</span>
         </div>
         <h4 className="font-semibold text-sm mb-2">Como funciona</h4>
         <ol className="space-y-2 text-xs text-muted-foreground list-decimal list-inside">

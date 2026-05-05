@@ -99,7 +99,7 @@ export default function Atendimento() {
           <div className="flex-1 overflow-y-auto scrollbar-thin space-y-1">
             {list.length === 0 && (
               <div className="text-center text-xs text-muted-foreground py-12">
-                {!engineOnline ? "Inicie o motor local para receber mensagens." : "Nenhuma conversa aqui."}
+                {!engineOnline ? "Inicie o Sistema local para receber mensagens." : "Nenhuma conversa aqui."}
               </div>
             )}
             {list.map((c) => (
@@ -239,7 +239,7 @@ function ChatView({ active, messages, onClose, contactTags, contactName }: {
 
   const send = async () => {
     if (!text.trim()) return;
-    if (!engineOnline) { toast.error("Motor local offline"); return; }
+    if (!engineOnline) { toast.error("Sistema local offline"); return; }
     try {
       await api.sendText(active.id, renderBody(text.trim()));
       setText("");
@@ -247,7 +247,7 @@ function ChatView({ active, messages, onClose, contactTags, contactName }: {
   };
 
   const sendFile = async (file: File) => {
-    if (!engineOnline) { toast.error("Motor local offline"); return; }
+    if (!engineOnline) { toast.error("Sistema local offline"); return; }
     try {
       await api.sendMedia(active.id, file, renderBody(text));
       setText("");
@@ -256,7 +256,7 @@ function ChatView({ active, messages, onClose, contactTags, contactName }: {
   };
 
   const startRecording = async () => {
-    if (!engineOnline) { toast.error("Motor local offline"); return; }
+    if (!engineOnline) { toast.error("Sistema local offline"); return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
