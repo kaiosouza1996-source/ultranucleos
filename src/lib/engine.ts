@@ -208,12 +208,14 @@ export const api = {
     const store = useAppStore.getState();
     if (!store.engineOnline) return;
     try {
-      const [tags, conversations, stages, fields] = await Promise.all([
+      const [contacts, tags, conversations, stages, fields] = await Promise.all([
+        fetchJson<unknown[]>("/contacts").catch(() => null),
         fetchJson<Tag[]>("/tags"),
         fetchJson<Conversation[]>("/conversations"),
         fetchJson<PipelineStage[]>("/pipeline/stages").catch(() => null),
         fetchJson<CustomField[]>("/custom-fields").catch(() => null),
       ]);
+      if (contacts) store.setContacts(contacts.map(normalizeEngineContact).filter(Boolean) as Contact[]);
       store.setTags(tags);
       store.setConversations(conversations);
       if (stages?.length) store.setPipelineStages(stages);
