@@ -329,8 +329,8 @@ export const useAppStore = create<AppState>((set, get) => {
     quickReplies: [],
     setQuickReplies: (q) => set({ quickReplies: q }),
 
-    conversations: [],
-    setConversations: (c) => set({ conversations: c }),
+    conversations: initial.conversations ?? [],
+    setConversations: (c) => { set({ conversations: c }); persist({ ...get(), conversations: c }); },
 
     messagesByChat: {},
     setMessages: (chatId, msgs) => set((st) => ({ messagesByChat: { ...st.messagesByChat, [chatId]: msgs } })),
