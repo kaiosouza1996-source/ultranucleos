@@ -185,7 +185,7 @@ function handleEngineMessage(msg: EngineMessage) {
 // ─────────────────── REST helpers ───────────────────
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  // Garante que sempre usamos http:// (nunca https) para o motor local.
+  // Garante que sempre usamos http:// (nunca https) para o Sistema local.
   const url = ENGINE_HTTP.replace(/^https:/, "http:") + path;
   const res = await fetch(url, {
     ...init,
@@ -284,7 +284,7 @@ export const api = {
         `/conversations/${encodeURIComponent(cleanId)}/send`,
         { method: "POST", body: JSON.stringify({ body, to: cleanId }) },
       );
-      // Mesmo com 200, validar se o motor confirmou sucesso.
+      // Mesmo com 200, validar se o Sistema confirmou sucesso.
       const ok = resp?.status === "sucesso" || resp?.status === "success" || resp?.success === true;
       if (!ok) {
         const reason = resp?.error || resp?.message || `Status inesperado: ${resp?.status ?? "desconhecido"}`;
@@ -297,12 +297,12 @@ export const api = {
       return resp;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      useAppStore.getState().pushLog({ level: "error", message: `Erro do motor: ${msg}`, contact: cleanId });
+      useAppStore.getState().pushLog({ level: "error", message: `Erro do Sistema: ${msg}`, contact: cleanId });
       throw err;
     }
   },
   /**
-   * Envia mensagem direta para um número (rota POST /send do motor local).
+   * Envia mensagem direta para um número (rota POST /send do Sistema local).
    * Payload: { numero: "5521999999999", mensagem: "..." }
    * Sanitiza telefone, valida resposta e gera logs claros (incluindo erro de rede).
    */
@@ -330,9 +330,9 @@ export const api = {
         body: JSON.stringify(payloadOut),
       });
     } catch (err) {
-      // Erro de rede — motor desligado, porta bloqueada, CORS, mixed-content, etc.
+      // Erro de rede — Sistema desligado, porta bloqueada, CORS, mixed-content, etc.
       const detail = err instanceof Error ? err.message : String(err);
-      const msg = `Erro de conexão com o motor local (${detail})`;
+      const msg = `Erro de conexão com o Sistema local (${detail})`;
       console.error("[ENGINE] fetch falhou:", err);
       store.pushLog({ level: "error", message: msg, contact: to });
       try { toast.error(msg); } catch { /* ignore */ }
@@ -440,7 +440,7 @@ function startMockMode() {
 export function mockConnectWhatsApp() {
   const store = useAppStore.getState();
   store.setStatus("ready", { me: "Demo (modo simulação)" });
-  store.pushLog({ level: "success", message: "Conexão simulada estabelecida (sem motor local)." });
+  store.pushLog({ level: "success", message: "Conexão simulada estabelecida (sem Sistema local)." });
 }
 export function mockDisconnect() {
   const store = useAppStore.getState();
@@ -457,15 +457,15 @@ export function startCampaign(params: CampaignParams) {
   const tpl = store.templates.find((t) => t.id === params.templateId);
   if (!tpl || contacts.length === 0) return;
 
-  // Caminho 1 — motor online via WS: delega para o backend (intervalo, anti-ban etc.)
+  // Caminho 1 — Sistema online via WS: delega para o backend (intervalo, anti-ban etc.)
   if (engineClient.send({ type: "start-campaign", contacts, template: tpl, settings: store.settings })) {
     store.resetCampaign();
     store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
-    store.pushLog({ level: "info", message: `Campanha iniciada no motor: ${contacts.length} contatos.` });
+    store.pushLog({ level: "info", message: `Campanha iniciada no Sistema: ${contacts.length} contatos.` });
     return;
   }
 
-  // Caminho 2 — SEMPRE tenta HTTP /send. O motor pode estar online mesmo se
+  // Caminho 2 — SEMPRE tenta HTTP /send. O Sistema pode estar online mesmo se
   // o badge visual disser o contrário (CORS no /health, WS bloqueado, etc.).
   // O usuário comandou: o disparo precisa chegar ao localhost obrigatoriamente.
   store.resetCampaign();
@@ -556,7 +556,7 @@ async function syncSystemStatus() {
  * Polling silencioso de /health.
  * - Não gera toast nem log de erro (evita ruído de mixed-content HTTPS→HTTP).
  * - Atualiza `engineOnline` (isLocalConnected) automaticamente.
- * - Tenta WS quando o motor responde.
+ * - Tenta WS quando o Sistema responde.
  */
 async function pingHealth() {
   const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/health`;
