@@ -291,6 +291,8 @@ export const api = {
         useAppStore.getState().pushLog({ level: "error", message: `Falha ao enviar: ${reason}`, contact: cleanId });
         throw new Error(reason);
       }
+      useAppStore.getState().setEngineOnline(true);
+      useAppStore.getState().setStatus("ready");
       useAppStore.getState().pushLog({ level: "success", message: "Mensagem enviada.", contact: cleanId });
       return resp;
     } catch (err) {
@@ -350,6 +352,8 @@ export const api = {
       store.pushLog({ level: "error", message: `Falha ao enviar: ${reason}`, contact: to });
       throw new Error(reason);
     }
+    store.setEngineOnline(true);
+    store.setStatus("ready");
     store.pushLog({ level: "success", message: "Mensagem enviada.", contact: to });
     return payload;
   },
