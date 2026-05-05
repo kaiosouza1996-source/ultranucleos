@@ -101,10 +101,12 @@ export default function Dashboard() {
     };
   }, [contacts, logs, conversations, campaign, range, pipelineStages, tags]);
 
-  const totals = metrics?.totals ?? fallback;
-  const series = metrics?.series.map((d) => ({ day: d.day, envios: d.envios })) ?? fallback.series;
-  const funnel = metrics?.funnel ?? fallback.funnel;
-  const topTags = metrics?.topTags ?? fallback.topTags;
+  const totals = metrics?.totals
+    ? { ...metrics.totals, contacts: Math.max(metrics.totals.contacts, fallback.contacts), tags: Math.max(metrics.totals.tags, fallback.tags) }
+    : fallback;
+  const series = metrics?.series?.some((d) => d.envios > 0) ? metrics.series.map((d) => ({ day: d.day, envios: d.envios })) : fallback.series;
+  const funnel = metrics?.funnel?.some((f) => f.count > 0) ? metrics.funnel : fallback.funnel;
+  const topTags = metrics?.topTags?.some((t) => t.count > 0) ? metrics.topTags : fallback.topTags;
 
   const successRate = totals.successRate == null ? "—" : `${totals.successRate}%`;
 
