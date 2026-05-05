@@ -337,11 +337,13 @@ export const useAppStore = create<AppState>((set, get) => {
       return { messagesByChat: { ...st.messagesByChat, [m.chat_id]: [...list, m] } };
     }),
 
-    logs: [],
-    pushLog: (l) => set((st) => ({
-      logs: [{ id: crypto.randomUUID(), ts: l.ts ?? Date.now(), level: l.level, message: l.message, contact: l.contact }, ...st.logs].slice(0, 500),
-    })),
-    clearLogs: () => set({ logs: [] }),
+    logs: initial.logs ?? [],
+    pushLog: (l) => {
+      const next = [{ id: crypto.randomUUID(), ts: l.ts ?? Date.now(), level: l.level, message: l.message, contact: l.contact }, ...get().logs].slice(0, 2000);
+      set({ logs: next });
+      persist({ ...get(), logs: next });
+    },
+    clearLogs: () => { set({ logs: [] }); persist({ ...get(), logs: [] }); },
 
     campaign: { running: false, paused: false, total: 0, sent: 0, failed: 0 },
     setCampaign: (c) => set((st) => ({ campaign: { ...st.campaign, ...c } })),
