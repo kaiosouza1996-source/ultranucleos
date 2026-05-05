@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { useAppStore, type ChatMessage, type Conversation, type CustomField, type PipelineStage, type Tag } from "@/store/appStore";
+import { useAppStore, type ChatMessage, type Contact, type Conversation, type CustomField, type PipelineStage, type Tag } from "@/store/appStore";
 
 // Força HTTP (sem TLS) para evitar bloqueios de certificado em localhost.
 export const ENGINE_HTTP = "http://localhost:8787";
@@ -20,6 +20,30 @@ export const ENGINE_WS = "ws://localhost:8787/ws";
  */
 export function sanitizePhoneNumber(raw: string): string {
   return String(raw ?? "").replace(/\D+/g, "");
+}
+
+function normalizeEngineContact(raw: unknown): Contact | null {
+  if (!raw || typeof raw !== "object") return null;
+  const c = raw as Partial<Contact> & { created_at?: number; tag_names?: string };
+  const telefone = sanitizePhoneNumber(String(c.telefone ?? ""));
+  if (!telefone) return null;
+  const tags = Array.isArray(c.tags)
+    ? c.tags.map(String).filter(Boolean)
+    : c.tag_names ? c.tag_names.split(",").map((t) => t.trim()).filter(Boolean) : [];
+  return {
+    id: String(c.id ?? telefone),
+    nome: String(c.nome ?? telefone),
+    telefone,
+    email: c.email,
+    documento: c.documento,
+    empresa: c.empresa,
+    origem: c.origem,
+    status: c.status ?? "novo",
+    observacoes: c.observacoes,
+    tags,
+    customData: c.customData,
+    createdAt: Number(c.createdAt ?? c.created_at ?? Date.now()),
+  };
 }
 
 interface EngineMessage { type: string; [k: string]: unknown }
