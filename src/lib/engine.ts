@@ -531,6 +531,18 @@ export function renderTemplate(body: string, nome: string): string {
 
 let healthTimer: number | null = null;
 let lastHealthOk: boolean | null = null;
+let healthFailures = 0;
+let lastHealthSuccessAt = 0;
+
+async function syncSystemStatus() {
+  try {
+    const data = await fetchJson<{ whatsapp?: string; me?: string; qr?: string | null }>("/status");
+    const whatsapp = data.whatsapp === "ready" || data.whatsapp === "qr" || data.whatsapp === "connecting"
+      ? data.whatsapp
+      : "disconnected";
+    useAppStore.getState().setStatus(whatsapp, { me: data.me, qr: data.qr || undefined });
+  } catch { /* silencioso */ }
+}
 
 /**
  * Polling silencioso de /health.
@@ -549,8 +561,11 @@ async function pingHealth() {
     const store = useAppStore.getState();
     if (!store.engineOnline) {
       store.setEngineOnline(true);
-      store.pushLog({ level: "success", message: "Sistema Conectado — motor local respondendo." });
+      store.pushLog({ level: "success", message: "Sistema Conectado — Sistema local respondendo." });
     }
+    healthFailures = 0;
+    lastHealthSuccessAt = Date.now();
+    void syncSystemStatus();
     if (lastHealthOk !== true) {
       console.log("[ENGINE] /health OK — Sistema Conectado");
       if (!engineClient.ws || engineClient.ws.readyState !== WebSocket.OPEN) {
@@ -560,7 +575,8 @@ async function pingHealth() {
     lastHealthOk = true;
   } catch {
     // Falha silenciosa — sem toast, sem log visível. Apenas baixa o estado.
-    if (lastHealthOk !== false) {
+    healthFailures += 1;
+    if (healthFailures >= 3 && Date.now() - lastHealthSuccessAt > 20000) {
       const store = useAppStore.getState();
       if (store.engineOnline) store.setEngineOnline(false);
     }
@@ -574,9 +590,9 @@ export function useEngineBootstrap() {
     if (started.current) return;
     started.current = true;
     engineClient.connect();
-    // Polling automático e silencioso a cada 15s — zero-config.
+    // Polling automático e silencioso a cada 5s — zero-config e estável.
     pingHealth();
-    healthTimer = window.setInterval(pingHealth, 15000);
+    healthTimer = window.setInterval(pingHealth, 5000);
     return () => {
       if (healthTimer) { window.clearInterval(healthTimer); healthTimer = null; }
     };
