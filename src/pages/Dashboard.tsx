@@ -42,6 +42,8 @@ export default function Dashboard() {
   const status = useAppStore((s) => s.status);
   const conversations = useAppStore((s) => s.conversations);
   const engineOnline = useAppStore((s) => s.engineOnline);
+  const pipelineStages = useAppStore((s) => s.pipelineStages);
+  const tags = useAppStore((s) => s.tags);
 
   const [range, setRange] = useState<Range>(7);
   const [metrics, setMetrics] = useState<MetricsResponse | null>(null);
@@ -64,9 +66,24 @@ export default function Dashboard() {
     for (let i = range - 1; i >= 0; i--) {
       const d = new Date(now - i * 86400000);
       const label = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-      const envios = logs.filter((l) => l.level === "success" && new Date(l.ts).toDateString() === d.toDateString()).length;
+      const envios = logs.filter((l) => l.level === "success" && /mensagem enviada|via \/send/i.test(l.message) && new Date(l.ts).toDateString() === d.toDateString()).length;
       days.push({ day: label, envios });
     }
+    const sentLogs = logs.filter((l) => l.level === "success" && /mensagem enviada|via \/send/i.test(l.message) && l.ts >= now - range * 86400000);
+    const errorLogs = logs.filter((l) => l.level === "error" && l.ts >= now - range * 86400000);
+    const funnel = pipelineStages.map((stage) => ({
+      key: stage.key,
+      label: stage.label,
+      color: stage.color,
+      ord: stage.order,
+      count: contacts.filter((c) => (c.status || pipelineStages[0]?.key || "novo") === stage.key).length,
+    }));
+    const tagColor = new Map(tags.map((t) => [t.nome, t.cor]));
+    const topTags = Array.from(tagSet).map((nome) => ({
+      nome,
+      cor: tagColor.get(nome) || "213 100% 60%",
+      count: contacts.filter((c) => c.tags.includes(nome)).length,
+    })).sort((a, b) => b.count - a.count).slice(0, 8);
     return {
       contacts: contacts.length,
       tags: tagSet.size,
@@ -74,14 +91,15 @@ export default function Dashboard() {
       pendentes: conversations.filter((c) => c.status === "pendente").length,
       atendendo: conversations.filter((c) => c.status === "atendendo").length,
       finalizadas: conversations.filter((c) => c.status === "finalizado").length,
-      sent: campaign.sent, errors: campaign.failed,
-      successRate: (campaign.sent + campaign.failed) ? Math.round(campaign.sent / (campaign.sent + campaign.failed) * 100) : null,
+      sent: sentLogs.length || campaign.sent,
+      errors: errorLogs.length || campaign.failed,
+      successRate: (sentLogs.length + errorLogs.length) ? Math.round(sentLogs.length / (sentLogs.length + errorLogs.length) * 100) : null,
       avgFirstResponseMs: 0,
       series: days,
-      funnel: [] as { key: string; label: string; color: string; count: number }[],
-      topTags: [] as { nome: string; cor: string; count: number }[],
+      funnel,
+      topTags,
     };
-  }, [contacts, logs, conversations, campaign, range]);
+  }, [contacts, logs, conversations, campaign, range, pipelineStages, tags]);
 
   const totals = metrics?.totals ?? fallback;
   const series = metrics?.series.map((d) => ({ day: d.day, envios: d.envios })) ?? fallback.series;
