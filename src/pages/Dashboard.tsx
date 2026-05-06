@@ -1,6 +1,6 @@
 import { AppHeader } from "@/components/AppHeader";
 import { useAppStore } from "@/store/appStore";
-import { Users, MessageSquare, CheckCircle2, AlertTriangle, Activity, Inbox, Timer, Zap } from "lucide-react";
+import { Users, MessageSquare, CheckCircle2, AlertTriangle, Activity, Inbox, Timer, Zap, Briefcase, Tag } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from "recharts";
 import { useEffect, useMemo, useState } from "react";
 import { api, type MetricsResponse } from "@/lib/engine";
