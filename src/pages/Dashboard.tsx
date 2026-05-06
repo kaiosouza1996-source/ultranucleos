@@ -193,40 +193,91 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="glass-card p-5 animate-fade-in">
-          <h3 className="text-base font-semibold mb-1">Funil do CRM</h3>
-          <p className="text-xs text-muted-foreground mb-4">Contatos por etapa do pipeline</p>
-          {funnel.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-8 text-center">Cadastre ou importe contatos para ver o funil.</p>
-          ) : (
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={funnel.map((f) => ({ name: f.label, count: f.count, fill: `hsl(${f.color})` }))}>
-                  <CartesianGrid stroke="hsl(213 40% 30% / 0.2)" vertical={false} />
-                  <XAxis dataKey="name" stroke="hsl(213 50% 70%)" fontSize={10} tickLine={false} axisLine={false} interval={0} angle={-15} textAnchor="end" height={50} />
-                  <YAxis stroke="hsl(213 50% 70%)" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
-                  <Tooltip contentStyle={{ background: "hsl(218 55% 9%)", border: "1px solid hsl(213 40% 30% / 0.4)", borderRadius: 10, color: "hsl(213 100% 95%)" }} />
-                  <Bar dataKey="count" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-base font-semibold">Funil do CRM</h3>
+              <p className="text-xs text-muted-foreground">Contatos por etapa do pipeline</p>
             </div>
+            <Briefcase className="w-4 h-4 text-muted-foreground" />
+          </div>
+          {funnel.length === 0 || funnel.every((f) => f.count === 0) ? (
+            <p className="text-xs text-muted-foreground py-12 text-center">Cadastre ou importe contatos para ver o funil.</p>
+          ) : (
+            (() => {
+              const sorted = [...funnel].sort((a, b) => (b.count - a.count));
+              const max = Math.max(...sorted.map((f) => f.count), 1);
+              const total = sorted.reduce((s, f) => s + f.count, 0) || 1;
+              return (
+                <ul className="space-y-2.5">
+                  {sorted.map((f, idx) => {
+                    const widthTop = (f.count / max) * 100;
+                    const pct = Math.round((f.count / total) * 100);
+                    const color = `hsl(${f.color})`;
+                    return (
+                      <li key={f.key} className="group relative animate-slide-in" style={{ animationDelay: `${idx * 60}ms` }}>
+                        <div className="flex items-center justify-between mb-1.5 text-xs">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="w-2 h-2 rounded-full shrink-0 transition-transform group-hover:scale-150"
+                              style={{ background: color, boxShadow: `0 0 10px ${color}` }} />
+                            <span className="font-medium truncate">{f.label}</span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0 tabular-nums">
+                            <span className="font-semibold text-foreground">{f.count}</span>
+                            <span className="text-muted-foreground text-[10px]">{pct}%</span>
+                          </div>
+                        </div>
+                        <div className="relative h-3 rounded-full overflow-hidden bg-muted/30"
+                          style={{ boxShadow: "inset 0 1px 2px rgba(0,0,0,0.3)" }}>
+                          <div className="h-full rounded-full transition-all duration-700 ease-out group-hover:brightness-125"
+                            style={{
+                              width: `${widthTop}%`,
+                              background: `linear-gradient(90deg, ${color} 0%, ${color}cc 60%, ${color}66 100%)`,
+                              boxShadow: `0 0 12px ${color}80`,
+                            }} />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              );
+            })()
           )}
         </div>
 
         <div className="glass-card p-5 animate-fade-in">
-          <h3 className="text-base font-semibold mb-1">Top tags</h3>
-          <p className="text-xs text-muted-foreground mb-4">Segmentos com mais contatos</p>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-base font-semibold">Top tags</h3>
+              <p className="text-xs text-muted-foreground">Segmentos com mais contatos</p>
+            </div>
+            <Tag className="w-4 h-4 text-muted-foreground" />
+          </div>
           {topTags.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-8 text-center">Importe contatos com tags para ver aqui.</p>
+            <p className="text-xs text-muted-foreground py-12 text-center">Importe contatos com tags para ver aqui.</p>
           ) : (
-            <ul className="space-y-2">
-              {topTags.map((t) => (
-                <li key={t.nome} className="flex items-center gap-3 p-2 rounded-lg bg-muted/20 border border-border/30">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: t.cor.startsWith("hsl") ? t.cor : `hsl(${t.cor})` }} />
-                  <span className="text-sm font-medium truncate flex-1">#{t.nome}</span>
-                  <span className="text-xs text-muted-foreground">{t.count} contatos</span>
-                </li>
-              ))}
-            </ul>
+            <div className="flex flex-wrap gap-2">
+              {topTags.map((t, idx) => {
+                const color = t.cor.startsWith("hsl") ? t.cor : `hsl(${t.cor})`;
+                return (
+                  <span key={t.nome}
+                    className="group inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-full text-xs font-medium transition-all duration-300 hover:-translate-y-0.5 animate-scale-in cursor-default"
+                    style={{
+                      background: `linear-gradient(135deg, ${color}26, ${color}0d)`,
+                      border: `1px solid ${color}40`,
+                      boxShadow: `0 2px 12px -4px ${color}55`,
+                      animationDelay: `${idx * 50}ms`,
+                    }}>
+                    <span className="w-1.5 h-1.5 rounded-full"
+                      style={{ background: color, boxShadow: `0 0 8px ${color}` }} />
+                    <span className="text-foreground/90">#{t.nome}</span>
+                    <span className="inline-flex items-center justify-center min-w-[22px] h-5 px-1.5 rounded-full text-[10px] font-semibold tabular-nums"
+                      style={{ background: `${color}33`, color: color }}>
+                      {t.count}
+                    </span>
+                  </span>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
