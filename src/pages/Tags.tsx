@@ -141,12 +141,20 @@ export default function Tags() {
                   const isOpen = expanded === t.nome;
                   const tagContacts = contacts.filter((c) => c.tags.includes(t.nome));
                   return (
-                    <div key={t.nome} className="rounded-lg bg-muted/30 border border-border/30 hover:border-primary/40 transition-all">
+                    <div
+                      key={t.nome}
+                      className="rounded-xl transition-all duration-300 hover:-translate-y-0.5"
+                      style={{
+                        background: `linear-gradient(135deg, ${t.cor}1f, ${t.cor}08 50%, transparent)`,
+                        border: `1px solid ${t.cor}33`,
+                        boxShadow: isOpen ? `0 8px 28px -10px ${t.cor}66` : `0 2px 14px -8px ${t.cor}55`,
+                      }}
+                    >
                       <div className="group flex items-center gap-3 p-3">
-                        <button onClick={() => setExpanded(isOpen ? null : t.nome)} className="text-muted-foreground hover:text-foreground">
+                        <button onClick={() => setExpanded(isOpen ? null : t.nome)} className="text-muted-foreground hover:text-foreground transition-colors">
                           {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                         </button>
-                        <span className="w-3 h-3 rounded-full" style={{ background: t.cor, boxShadow: `0 0 10px ${t.cor}80` }} />
+                        <span className="w-3 h-3 rounded-full transition-transform group-hover:scale-125" style={{ background: t.cor, boxShadow: `0 0 12px ${t.cor}` }} />
                         {editing === t.nome ? (
                           <Input
                             autoFocus
@@ -164,6 +172,12 @@ export default function Tags() {
                             </div>
                           </button>
                         )}
+                        <span
+                          className="hidden sm:inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded-full text-[10px] font-semibold tabular-nums"
+                          style={{ background: `${t.cor}30`, color: t.cor }}
+                        >
+                          {t.count}
+                        </span>
                         <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openBulk(t.nome)} title="Aplicar em contatos">
                           <UserPlus className="w-3.5 h-3.5" />
                         </Button>
@@ -175,7 +189,7 @@ export default function Tags() {
                         </Button>
                       </div>
                       {isOpen && (
-                        <div className="border-t border-border/30 p-3 max-h-72 overflow-y-auto scrollbar-thin">
+                        <div className="border-t p-3 max-h-72 overflow-y-auto scrollbar-thin animate-fade-in" style={{ borderColor: `${t.cor}25` }}>
                           {tagContacts.length === 0 ? (
                             <p className="text-xs text-muted-foreground text-center py-4">Nenhum contato com essa tag.</p>
                           ) : (
