@@ -24,12 +24,19 @@ export interface Tag {
   contact_count?: number;
 }
 
+export interface TemplatePart {
+  body: string;
+  delaySeconds: number; // intervalo antes de enviar esta parte (ignorado na primeira)
+}
+
 export interface Template {
   id: string;
   name: string;
   tag: string;
   body: string;
   updatedAt: number;
+  multiPart?: boolean;
+  parts?: TemplatePart[];
 }
 
 export interface QuickReply {
