@@ -161,6 +161,16 @@ function handleEngineMessage(msg: EngineMessage) {
       if (m && m.chat_id && m.id) {
         console.log("[WS] nova mensagem para chat", m.chat_id, m);
         store.pushMessage(m);
+        // Auto-classificação CRM: ao receber a PRIMEIRA resposta de um contato
+        // que está como "novo" no pipeline, move para "em-atendimento".
+        if (!m.from_me) {
+          const tel = String(m.chat_id).replace(/\D+/g, "");
+          const contact = store.contacts.find((c) => c.telefone === tel);
+          if (contact && (contact.status === "novo" || !contact.status)) {
+            store.moveContactStage(contact.id, "em-atendimento");
+            store.pushLog({ level: "info", message: `${contact.nome} respondeu — movido para "Em atendimento"`, contact: tel });
+          }
+        }
       }
       break;
     }
