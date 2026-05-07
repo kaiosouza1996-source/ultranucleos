@@ -663,6 +663,27 @@ app.post('/conversations/:id/send-media', upload.single('file'), async (req, res
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Disparo direto de mídia: multipart/form-data { numero, file, caption? }
+app.post('/send-media', upload.single('file'), async (req, res) => {
+  try {
+    if (!waReady) return res.status(503).json({ error: 'WhatsApp não conectado', status: 'erro' });
+    if (!req.file) return res.status(400).json({ error: 'arquivo ausente', status: 'erro' });
+    const numero = String(req.body?.numero ?? req.body?.to ?? '').replace(/\D+/g, '');
+    if (!numero) return res.status(400).json({ error: 'numero inválido', status: 'erro' });
+    const chatId = `${numero}@c.us`;
+    const exists = await wa.isRegisteredUser(chatId);
+    if (!exists) return res.status(404).json({ error: 'Número não está no WhatsApp', status: 'erro' });
+    const mimetype = req.file.mimetype || mime.lookup(req.file.originalname) || 'application/octet-stream';
+    await sendMediaFile(chatId, req.file.path, mimetype, req.body.caption || '');
+    db.prepare('INSERT INTO sent (telefone, ts) VALUES (?,?)').run(numero, Date.now());
+    logEvent('success', 'Mídia enviada via /send-media', numero);
+    res.json({ ok: true, status: 'sucesso', numero });
+  } catch (e) {
+    logEvent('error', `Erro /send-media: ${e.message}`);
+    res.status(500).json({ error: e.message, status: 'erro' });
+  }
+});
+
 // Logs
 app.get('/logs', (_req, res) => res.json(db.prepare('SELECT * FROM logs ORDER BY id DESC LIMIT 500').all()));
 
