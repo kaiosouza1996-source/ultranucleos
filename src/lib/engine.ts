@@ -388,6 +388,44 @@ export const api = {
       throw new Error(reason);
     }
   },
+  /** Envia mídia (imagem/áudio) direto para um número via POST /send-media. */
+  async sendMediaToNumber(numero: string, media: { dataUrl?: string; file?: File; filename: string; mimetype: string }, caption?: string) {
+    const to = sanitizePhoneNumber(numero);
+    const store = useAppStore.getState();
+    if (!to) throw new Error("Número inválido");
+    const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/send-media`;
+    const fd = new FormData();
+    fd.append("numero", to);
+    if (caption) fd.append("caption", caption);
+    if (media.file) {
+      fd.append("file", media.file, media.filename);
+    } else if (media.dataUrl) {
+      const blob = dataUrlToBlobInternal(media.dataUrl);
+      fd.append("file", blob, media.filename);
+    } else {
+      throw new Error("Mídia ausente");
+    }
+    let res: Response;
+    try {
+      res = await fetch(url, { method: "POST", body: fd });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      const msg = `Erro de conexão com o Sistema local (${detail})`;
+      store.pushLog({ level: "error", message: msg, contact: to });
+      throw new Error(msg);
+    }
+    let payload: { status?: string; success?: boolean; ok?: boolean; error?: string; message?: string } | null = null;
+    try { payload = await res.json(); } catch { /* sem corpo */ }
+    if (!res.ok) {
+      const reason = payload?.error || payload?.message || `HTTP ${res.status}`;
+      store.pushLog({ level: "error", message: `Falha ao enviar mídia: ${reason}`, contact: to });
+      throw new Error(reason);
+    }
+    store.setEngineOnline(true);
+    store.setStatus("ready");
+    store.pushLog({ level: "success", message: "Mídia enviada.", contact: to });
+    return payload;
+  },
   async createTag(nome: string, cor?: string) {
     return fetchJson<{ id: string; nome: string }>("/tags", { method: "POST", body: JSON.stringify({ nome, cor }) });
   },
