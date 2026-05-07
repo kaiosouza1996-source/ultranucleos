@@ -22,6 +22,15 @@ export function sanitizePhoneNumber(raw: string): string {
   return String(raw ?? "").replace(/\D+/g, "");
 }
 
+function dataUrlToBlobInternal(dataUrl: string): Blob {
+  const [meta, b64] = dataUrl.split(",");
+  const mime = /data:(.*?);base64/.exec(meta)?.[1] ?? "application/octet-stream";
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
 function normalizeEngineContact(raw: unknown): Contact | null {
   if (!raw || typeof raw !== "object") return null;
   const c = raw as Partial<Contact> & { created_at?: number; tag_names?: string };
@@ -388,6 +397,44 @@ export const api = {
       throw new Error(reason);
     }
   },
+  /** Envia mídia (imagem/áudio) direto para um número via POST /send-media. */
+  async sendMediaToNumber(numero: string, media: { dataUrl?: string; file?: File; filename: string; mimetype: string }, caption?: string) {
+    const to = sanitizePhoneNumber(numero);
+    const store = useAppStore.getState();
+    if (!to) throw new Error("Número inválido");
+    const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/send-media`;
+    const fd = new FormData();
+    fd.append("numero", to);
+    if (caption) fd.append("caption", caption);
+    if (media.file) {
+      fd.append("file", media.file, media.filename);
+    } else if (media.dataUrl) {
+      const blob = dataUrlToBlobInternal(media.dataUrl);
+      fd.append("file", blob, media.filename);
+    } else {
+      throw new Error("Mídia ausente");
+    }
+    let res: Response;
+    try {
+      res = await fetch(url, { method: "POST", body: fd });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      const msg = `Erro de conexão com o Sistema local (${detail})`;
+      store.pushLog({ level: "error", message: msg, contact: to });
+      throw new Error(msg);
+    }
+    let payload: { status?: string; success?: boolean; ok?: boolean; error?: string; message?: string } | null = null;
+    try { payload = await res.json(); } catch { /* sem corpo */ }
+    if (!res.ok) {
+      const reason = payload?.error || payload?.message || `HTTP ${res.status}`;
+      store.pushLog({ level: "error", message: `Falha ao enviar mídia: ${reason}`, contact: to });
+      throw new Error(reason);
+    }
+    store.setEngineOnline(true);
+    store.setStatus("ready");
+    store.pushLog({ level: "success", message: "Mídia enviada.", contact: to });
+    return payload;
+  },
   async createTag(nome: string, cor?: string) {
     return fetchJson<{ id: string; nome: string }>("/tags", { method: "POST", body: JSON.stringify({ nome, cor }) });
   },
@@ -494,14 +541,19 @@ export function startCampaign(params: CampaignParams) {
 /** Loop HTTP que dispara para cada contato via POST /send, respeitando intervalo/anti-ban + multi-partes. */
 async function runHttpCampaign(
   contacts: { id: string; nome: string; telefone: string }[],
-  tpl: { body: string; multiPart?: boolean; parts?: { body: string; delaySeconds: number }[] },
+  tpl: {
+    body: string;
+    multiPart?: boolean;
+    parts?: { body: string; delaySeconds: number; media?: { dataUrl: string; filename: string; mimetype: string } | null }[];
+    media?: { dataUrl: string; filename: string; mimetype: string } | null;
+  },
   settings: { minDelay: number; maxDelay: number; longPauseEvery: number; longPauseSeconds: number },
 ) {
   let sent = 0, failed = 0;
   const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
   const parts = tpl.multiPart && tpl.parts && tpl.parts.length > 0
     ? tpl.parts
-    : [{ body: tpl.body, delaySeconds: 0 }];
+    : [{ body: tpl.body, delaySeconds: 0, media: tpl.media ?? null }];
   for (let i = 0; i < contacts.length; i++) {
     const s = useAppStore.getState();
     if (!s.campaign.running) break;
@@ -518,9 +570,15 @@ async function runHttpCampaign(
         await sleep(part.delaySeconds * 1000);
       }
       const text = renderTemplate(part.body, c.nome);
-      if (!text.trim()) continue;
+      const hasText = text.trim().length > 0;
       try {
-        await api.sendToNumber(c.telefone, text);
+        if (part.media) {
+          await api.sendMediaToNumber(c.telefone, part.media, hasText ? text : undefined);
+        } else if (hasText) {
+          await api.sendToNumber(c.telefone, text);
+        } else {
+          continue;
+        }
       } catch {
         contactFailed = true;
         break;

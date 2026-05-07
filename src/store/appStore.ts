@@ -24,9 +24,17 @@ export interface Tag {
   contact_count?: number;
 }
 
+export interface TemplateMedia {
+  kind: "image" | "audio";
+  dataUrl: string;     // base64 data URL
+  filename: string;
+  mimetype: string;
+}
+
 export interface TemplatePart {
   body: string;
   delaySeconds: number; // intervalo antes de enviar esta parte (ignorado na primeira)
+  media?: TemplateMedia | null;
 }
 
 export interface Template {
@@ -37,6 +45,7 @@ export interface Template {
   updatedAt: number;
   multiPart?: boolean;
   parts?: TemplatePart[];
+  media?: TemplateMedia | null; // anexo do modo simples (não-multipart)
 }
 
 export interface QuickReply {
