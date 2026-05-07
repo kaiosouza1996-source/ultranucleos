@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { formatPhoneDisplay, normalizePhone } from "@/lib/phone";
 import { toast } from "sonner";
 
-type Tab = "pendentes" | "meus";
+type Tab = "meus" | "pendentes";
 
 export default function Atendimento() {
   const conversations = useAppStore((s) => s.conversations);
@@ -16,7 +16,7 @@ export default function Atendimento() {
   const engineOnline = useAppStore((s) => s.engineOnline);
   const contacts = useAppStore((s) => s.contacts);
   const setConversations = useAppStore((s) => s.setConversations);
-  const [tab, setTab] = useState<Tab>("pendentes");
+  const [tab, setTab] = useState<Tab>("meus");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [newChat, setNewChat] = useState(false);
@@ -43,22 +43,21 @@ export default function Atendimento() {
     }
   }, [engineOnline]);
 
-  // Buscar também por tag (#tagname) ou conteúdo da última mensagem
+  // Busca por nome, número, conteúdo da última mensagem ou tag (com ou sem #).
   const list = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    const tagFilter = q.startsWith("#") ? q.slice(1) : null;
+    const raw = search.toLowerCase().trim();
+    const q = raw.startsWith("#") ? raw.slice(1) : raw;
     const filtered = conversations.filter((c) => {
       if (tab === "pendentes") return c.status === "pendente";
       return c.status === "atendendo";
     }).filter((c) => {
       if (!q) return true;
-      if (tagFilter) {
-        const ct = contacts.find((x) => x.telefone === c.telefone);
-        return ct?.tags?.some((t) => t.toLowerCase().includes(tagFilter));
-      }
+      const ct = contacts.find((x) => x.telefone === c.telefone);
+      const tagMatch = ct?.tags?.some((t) => t.toLowerCase().includes(q));
       return c.nome.toLowerCase().includes(q)
         || c.telefone.includes(q)
-        || (c.last_message || "").toLowerCase().includes(q);
+        || (c.last_message || "").toLowerCase().includes(q)
+        || !!tagMatch;
     });
     return filtered.sort((a, b) => b.last_ts - a.last_ts);
   }, [conversations, tab, search, contacts]);
@@ -82,10 +81,10 @@ export default function Atendimento() {
         {/* Coluna esquerda */}
         <div className={`glass-card p-3 flex flex-col min-h-0 ${active ? "hidden lg:flex" : ""}`}>
           <div className="flex gap-1 p-1 rounded-lg bg-muted/30 mb-2">
+            <TabBtn active={tab === "meus"} onClick={() => setTab("meus")} icon={MessageSquareText}
+              count={conversations.filter((c) => c.status === "atendendo").length}>Atendimento</TabBtn>
             <TabBtn active={tab === "pendentes"} onClick={() => setTab("pendentes")} icon={Inbox}
               count={conversations.filter((c) => c.status === "pendente").length}>Pendentes</TabBtn>
-            <TabBtn active={tab === "meus"} onClick={() => setTab("meus")} icon={MessageSquareText}
-              count={conversations.filter((c) => c.status === "atendendo").length}>Meus</TabBtn>
           </div>
           <Button size="sm" className="btn-glow w-full mb-2" onClick={() => setNewChat(true)}>
             <Plus className="w-3.5 h-3.5 mr-1.5" /> Nova conversa
@@ -93,7 +92,7 @@ export default function Atendimento() {
 
           <div className="relative mb-2">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input className="pl-8 h-8 bg-input/60 text-sm" placeholder="Buscar — use #tag para filtrar" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Input className="pl-8 h-8 bg-input/60 text-sm" placeholder="Buscar" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
 
           <div className="flex-1 overflow-y-auto scrollbar-thin space-y-1">
