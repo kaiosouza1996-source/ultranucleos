@@ -541,14 +541,19 @@ export function startCampaign(params: CampaignParams) {
 /** Loop HTTP que dispara para cada contato via POST /send, respeitando intervalo/anti-ban + multi-partes. */
 async function runHttpCampaign(
   contacts: { id: string; nome: string; telefone: string }[],
-  tpl: { body: string; multiPart?: boolean; parts?: { body: string; delaySeconds: number }[] },
+  tpl: {
+    body: string;
+    multiPart?: boolean;
+    parts?: { body: string; delaySeconds: number; media?: { dataUrl: string; filename: string; mimetype: string } | null }[];
+    media?: { dataUrl: string; filename: string; mimetype: string } | null;
+  },
   settings: { minDelay: number; maxDelay: number; longPauseEvery: number; longPauseSeconds: number },
 ) {
   let sent = 0, failed = 0;
   const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
   const parts = tpl.multiPart && tpl.parts && tpl.parts.length > 0
     ? tpl.parts
-    : [{ body: tpl.body, delaySeconds: 0 }];
+    : [{ body: tpl.body, delaySeconds: 0, media: tpl.media ?? null }];
   for (let i = 0; i < contacts.length; i++) {
     const s = useAppStore.getState();
     if (!s.campaign.running) break;
@@ -565,9 +570,15 @@ async function runHttpCampaign(
         await sleep(part.delaySeconds * 1000);
       }
       const text = renderTemplate(part.body, c.nome);
-      if (!text.trim()) continue;
+      const hasText = text.trim().length > 0;
       try {
-        await api.sendToNumber(c.telefone, text);
+        if (part.media) {
+          await api.sendMediaToNumber(c.telefone, part.media, hasText ? text : undefined);
+        } else if (hasText) {
+          await api.sendToNumber(c.telefone, text);
+        } else {
+          continue;
+        }
       } catch {
         contactFailed = true;
         break;
