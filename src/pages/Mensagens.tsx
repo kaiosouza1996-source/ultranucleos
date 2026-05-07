@@ -2,13 +2,14 @@ import { AppHeader } from "@/components/AppHeader";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { useAppStore, type Template } from "@/store/appStore";
+import { Switch } from "@/components/ui/switch";
+import { useAppStore, type Template, type TemplatePart } from "@/store/appStore";
 import { useState, useMemo } from "react";
-import { Plus, Save, Trash2, Copy, MessageSquareText } from "lucide-react";
+import { Plus, Save, Trash2, Copy, MessageSquareText, Layers, ArrowUp, ArrowDown, X } from "lucide-react";
 import { renderTemplate } from "@/lib/engine";
 import { toast } from "sonner";
 
-const empty = (): Template => ({ id: crypto.randomUUID(), name: "Novo template", tag: "geral", body: "Olá {nome}! ", updatedAt: Date.now() });
+const empty = (): Template => ({ id: crypto.randomUUID(), name: "Novo template", tag: "geral", body: "Olá {nome}! ", updatedAt: Date.now(), multiPart: false, parts: [] });
 
 export default function Mensagens() {
   const templates = useAppStore((s) => s.templates);
@@ -29,6 +30,41 @@ export default function Mensagens() {
   const duplicate = () => { if (!draft) return; const t = { ...draft, id: crypto.randomUUID(), name: draft.name + " (cópia)" }; upsert(t); open(t); };
   const del = () => { if (!draft) return; remove(draft.id); setDraft(null); setSelectedId(null); toast.success("Removido"); };
 
+  // Helpers de partes
+  const ensureParts = (t: Template): TemplatePart[] => (t.parts && t.parts.length > 0 ? t.parts : [{ body: t.body, delaySeconds: 0 }]);
+  const updatePart = (idx: number, patch: Partial<TemplatePart>) => {
+    if (!draft) return;
+    const parts = ensureParts(draft).map((p, i) => i === idx ? { ...p, ...patch } : p);
+    setDraft({ ...draft, parts });
+  };
+  const addPart = () => {
+    if (!draft) return;
+    const parts = [...ensureParts(draft), { body: "", delaySeconds: 5 }];
+    setDraft({ ...draft, parts });
+  };
+  const removePart = (idx: number) => {
+    if (!draft) return;
+    const parts = ensureParts(draft).filter((_, i) => i !== idx);
+    setDraft({ ...draft, parts: parts.length ? parts : [{ body: draft.body, delaySeconds: 0 }] });
+  };
+  const movePart = (idx: number, dir: -1 | 1) => {
+    if (!draft) return;
+    const parts = [...ensureParts(draft)];
+    const j = idx + dir;
+    if (j < 0 || j >= parts.length) return;
+    [parts[idx], parts[j]] = [parts[j], parts[idx]];
+    setDraft({ ...draft, parts });
+  };
+  const toggleMulti = (on: boolean) => {
+    if (!draft) return;
+    if (on) {
+      const parts = draft.parts && draft.parts.length > 0 ? draft.parts : [{ body: draft.body, delaySeconds: 0 }];
+      setDraft({ ...draft, multiPart: true, parts });
+    } else {
+      setDraft({ ...draft, multiPart: false });
+    }
+  };
+
   return (
     <>
       <AppHeader title="Mensagens" subtitle="Templates personalizados com variáveis dinâmicas" />
@@ -42,11 +78,16 @@ export default function Mensagens() {
                 className={`w-full text-left glass-card p-3 transition-all duration-200 hover:border-primary/40
                   ${selectedId === t.id ? "border-primary/60 shadow-glow" : ""}`}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <div className="text-sm font-medium truncate">{t.name}</div>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary">{t.tag}</span>
                 </div>
                 <div className="text-xs text-muted-foreground truncate mt-1">{t.body}</div>
+                {t.multiPart && t.parts && t.parts.length > 1 && (
+                  <div className="mt-1 text-[10px] text-primary/80 flex items-center gap-1">
+                    <Layers className="w-3 h-3" /> {t.parts.length} partes
+                  </div>
+                )}
               </button>
             ))}
             {templates.length === 0 && <p className="text-sm text-muted-foreground text-center py-8">Nenhum template ainda.</p>}
@@ -66,22 +107,86 @@ export default function Mensagens() {
                 <datalist id="tags-list">{tags.map((t) => <option key={t} value={t} />)}</datalist>
               </div>
             </div>
-            <div>
-              <label className="text-xs uppercase tracking-wider text-muted-foreground">Mensagem</label>
-              <Textarea
-                rows={8}
-                className="bg-input/60 mt-1 font-mono text-sm"
-                value={draft.body}
-                onChange={(e) => setDraft({ ...draft, body: e.target.value })}
-              />
-              <p className="text-xs text-muted-foreground mt-2">Use <code className="px-1 rounded bg-muted text-foreground">{"{nome}"}</code> para inserir o nome do contato.</p>
+
+            <div className="flex items-center justify-between p-3 rounded-lg border border-border/40 bg-muted/20 mb-4">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-primary" />
+                <div>
+                  <div className="text-sm font-medium">Enviar em partes</div>
+                  <div className="text-xs text-muted-foreground">Divida a mensagem em vários envios sequenciais com intervalo entre eles.</div>
+                </div>
+              </div>
+              <Switch checked={!!draft.multiPart} onCheckedChange={toggleMulti} />
             </div>
+
+            {!draft.multiPart && (
+              <div>
+                <label className="text-xs uppercase tracking-wider text-muted-foreground">Mensagem</label>
+                <Textarea
+                  rows={8}
+                  className="bg-input/60 mt-1 font-mono text-sm"
+                  value={draft.body}
+                  onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground mt-2">Use <code className="px-1 rounded bg-muted text-foreground">{"{nome}"}</code> para inserir o nome do contato.</p>
+              </div>
+            )}
+
+            {draft.multiPart && (
+              <div className="space-y-3">
+                {ensureParts(draft).map((p, idx) => (
+                  <div key={idx} className="rounded-lg border border-border/40 bg-muted/10 p-3 animate-fade-in">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-xs uppercase tracking-wider text-primary font-semibold">Parte {idx + 1}</div>
+                      <div className="flex items-center gap-1">
+                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => movePart(idx, -1)} disabled={idx === 0}><ArrowUp className="w-3.5 h-3.5" /></Button>
+                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => movePart(idx, 1)} disabled={idx === ensureParts(draft).length - 1}><ArrowDown className="w-3.5 h-3.5" /></Button>
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => removePart(idx)} disabled={ensureParts(draft).length <= 1}><X className="w-3.5 h-3.5" /></Button>
+                      </div>
+                    </div>
+                    <Textarea
+                      rows={4}
+                      className="bg-input/60 font-mono text-sm"
+                      placeholder="Conteúdo desta parte…"
+                      value={p.body}
+                      onChange={(e) => updatePart(idx, { body: e.target.value })}
+                    />
+                    {idx > 0 && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <label className="text-xs text-muted-foreground">Intervalo antes desta parte:</label>
+                        <Input
+                          type="number"
+                          min={0}
+                          className="bg-input/60 h-8 w-24"
+                          value={p.delaySeconds}
+                          onChange={(e) => updatePart(idx, { delaySeconds: Math.max(0, Number(e.target.value) || 0) })}
+                        />
+                        <span className="text-xs text-muted-foreground">segundos</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <Button variant="outline" size="sm" onClick={addPart}><Plus className="w-3.5 h-3.5 mr-1.5" /> Adicionar parte</Button>
+                <p className="text-xs text-muted-foreground">Use <code className="px-1 rounded bg-muted text-foreground">{"{nome}"}</code> em qualquer parte para inserir o nome do contato.</p>
+              </div>
+            )}
 
             <div className="mt-4 p-4 rounded-lg bg-primary/5 border border-primary/20">
               <div className="text-xs uppercase tracking-wider text-primary mb-2 flex items-center gap-2">
                 <MessageSquareText className="w-3.5 h-3.5" /> Pré-visualização
               </div>
-              <div className="text-sm whitespace-pre-wrap">{renderTemplate(draft.body, "Maria")}</div>
+              {draft.multiPart ? (
+                <div className="space-y-2">
+                  {ensureParts(draft).map((p, idx) => (
+                    <div key={idx} className="text-sm">
+                      {idx > 0 && <div className="text-[10px] text-muted-foreground mb-1">⏱ aguarda {p.delaySeconds}s</div>}
+                      <div className="whitespace-pre-wrap rounded-md bg-background/40 p-2 border border-border/30">{renderTemplate(p.body, "Maria")}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm whitespace-pre-wrap">{renderTemplate(draft.body, "Maria")}</div>
+              )}
             </div>
 
             <div className="flex gap-2 mt-5">
