@@ -467,6 +467,11 @@ export function startCampaign(params: CampaignParams) {
   const tpl = store.templates.find((t) => t.id === params.templateId);
   if (!tpl || contacts.length === 0) return;
 
+  // Auto-classificação CRM: todos os contatos disparados vão para "Novo".
+  for (const c of contacts) {
+    if (c.status !== "novo") store.moveContactStage(c.id, "novo");
+  }
+
   // Caminho 1 — Sistema online via WS: delega para o backend (intervalo, anti-ban etc.)
   if (engineClient.send({ type: "start-campaign", contacts, template: tpl, settings: store.settings })) {
     store.resetCampaign();
@@ -475,41 +480,53 @@ export function startCampaign(params: CampaignParams) {
     return;
   }
 
-  // Caminho 2 — SEMPRE tenta HTTP /send. O Sistema pode estar online mesmo se
-  // o badge visual disser o contrário (CORS no /health, WS bloqueado, etc.).
-  // O usuário comandou: o disparo precisa chegar ao localhost obrigatoriamente.
+  // Caminho 2 — SEMPRE tenta HTTP /send (zero-trava).
   store.resetCampaign();
   store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
   store.pushLog({
     level: "info",
     message: `Campanha iniciada via HTTP (${contacts.length} contatos) → http://localhost:8787/send`,
   });
-  runHttpCampaign(contacts, tpl.body, store.settings);
+  runHttpCampaign(contacts, tpl, store.settings);
   return;
 }
 
-/** Loop HTTP que dispara para cada contato via POST /send, respeitando intervalo/anti-ban. */
+/** Loop HTTP que dispara para cada contato via POST /send, respeitando intervalo/anti-ban + multi-partes. */
 async function runHttpCampaign(
   contacts: { id: string; nome: string; telefone: string }[],
-  templateBody: string,
+  tpl: { body: string; multiPart?: boolean; parts?: { body: string; delaySeconds: number }[] },
   settings: { minDelay: number; maxDelay: number; longPauseEvery: number; longPauseSeconds: number },
 ) {
   let sent = 0, failed = 0;
   const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+  const parts = tpl.multiPart && tpl.parts && tpl.parts.length > 0
+    ? tpl.parts
+    : [{ body: tpl.body, delaySeconds: 0 }];
   for (let i = 0; i < contacts.length; i++) {
     const s = useAppStore.getState();
     if (!s.campaign.running) break;
     while (useAppStore.getState().campaign.paused) await sleep(800);
     const c = contacts[i];
-    const text = renderTemplate(templateBody, c.nome);
     s.setCampaign({ currentContact: `${c.nome} (${c.telefone})`, sent, failed });
     s.pushLog({ level: "info", message: `Enviando para ${c.nome}…`, contact: c.telefone });
-    try {
-      await api.sendToNumber(c.telefone, text);
-      sent++;
-    } catch {
-      failed++;
+    let contactFailed = false;
+    for (let p = 0; p < parts.length; p++) {
+      if (!useAppStore.getState().campaign.running) { contactFailed = true; break; }
+      while (useAppStore.getState().campaign.paused) await sleep(800);
+      const part = parts[p];
+      if (p > 0 && part.delaySeconds > 0) {
+        await sleep(part.delaySeconds * 1000);
+      }
+      const text = renderTemplate(part.body, c.nome);
+      if (!text.trim()) continue;
+      try {
+        await api.sendToNumber(c.telefone, text);
+      } catch {
+        contactFailed = true;
+        break;
+      }
     }
+    if (contactFailed) failed++; else sent++;
     useAppStore.getState().setCampaign({ sent, failed });
     if (settings.longPauseEvery && (i + 1) % settings.longPauseEvery === 0) {
       useAppStore.getState().pushLog({ level: "info", message: `Pausa longa de ~${settings.longPauseSeconds}s` });
