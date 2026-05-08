@@ -106,7 +106,7 @@ export default function Disparos() {
               {templates.map((t) => (
                 <button key={t.id} onClick={() => setTemplateId(t.id)}
                   className={`text-left p-3 rounded-lg border transition-all
-                    ${templateId === t.id ? "border-primary bg-primary/10 shadow-glow" : "border-border/40 hover:border-primary/40"}`}
+                    ${templateId === t.id ? "border-primary/60 bg-primary/10 shadow-glow" : "border-white/[0.04] bg-muted/20 hover:border-primary/30 hover:bg-muted/30"}`}
                 >
                   <div className="text-sm font-medium">{t.name}</div>
                   <div className="text-xs text-muted-foreground truncate mt-1">{t.body}</div>

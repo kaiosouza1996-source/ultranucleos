@@ -135,7 +135,7 @@ export default function Importar() {
           <div
             {...getRootProps()}
             className={`glass-card glass-card-hover p-10 text-center cursor-pointer border-2 border-dashed transition-all
-              ${isDragActive ? "border-primary bg-primary/5" : "border-border/40 hover:border-primary/40"}`}
+              ${isDragActive ? "border-primary bg-primary/5" : "border-white/[0.06] hover:border-primary/40"}`}
           >
             <input {...getInputProps()} />
             <div className="w-14 h-14 mx-auto rounded-full bg-primary/10 flex items-center justify-center mb-3">
@@ -154,12 +154,12 @@ export default function Importar() {
               </div>
               <div className="grid sm:grid-cols-2 gap-2">
                 {parsed.headers.map((h) => (
-                  <div key={h} className="flex items-center gap-2 p-2 rounded bg-muted/30 border border-border/30">
+                  <div key={h} className="flex items-center gap-2 p-2 rounded bg-muted/30 border border-white/[0.04]">
                     <div className="text-sm font-medium truncate flex-1">{h}</div>
                     <select
                       value={parsed.mapping.byHeader[h]}
                       onChange={(e) => setMapping(h, e.target.value as FieldKey | "ignorar")}
-                      className="text-xs bg-input rounded px-2 py-1 border border-border/40"
+                      className="text-xs bg-input/60 rounded px-2 py-1 border border-white/[0.04]"
                     >
                       {FIELDS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
                     </select>
@@ -234,7 +234,7 @@ export default function Importar() {
               </label>
               <Input
                 disabled={!useFileTag}
-                className="bg-input/60 disabled:opacity-50"
+                className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30 disabled:opacity-50"
                 value={fileTag}
                 onChange={(e) => onFileTagChange(e.target.value.toLowerCase())}
               />
@@ -251,7 +251,7 @@ export default function Importar() {
             </div>
             <Input
               placeholder="Ex: black-friday-2024"
-              className="bg-input/60"
+              className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30"
               value={defaultTag}
               onChange={(e) => onTagChange(e.target.value.toLowerCase())}
             />
@@ -286,7 +286,7 @@ export default function Importar() {
 function Stat({ label, value, accent }: { label: string; value: number; accent?: "success" | "warn" | "destructive" }) {
   const cls = accent === "success" ? "text-success" : accent === "warn" ? "text-warning" : accent === "destructive" ? "text-destructive" : "text-foreground";
   return (
-    <div className="px-3 py-1.5 rounded-lg bg-muted/30 border border-border/30">
+    <div className="px-3 py-1.5 rounded-lg bg-muted/30 border border-white/[0.04]">
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
       <div className={`text-lg font-semibold ${cls}`}>{value}</div>
     </div>

@@ -122,16 +122,16 @@ export default function Mensagens() {
           <div className="grid md:grid-cols-2 gap-4 mb-4">
             <div>
               <label className="text-xs uppercase tracking-wider text-muted-foreground">Nome</label>
-              <Input className="bg-input/60 mt-1" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+              <Input className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30 mt-1" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
             </div>
             <div>
               <label className="text-xs uppercase tracking-wider text-muted-foreground">Tag alvo</label>
-              <Input className="bg-input/60 mt-1" value={draft.tag} list="tags-list" onChange={(e) => setDraft({ ...draft, tag: e.target.value.toLowerCase() })} />
+              <Input className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30 mt-1" value={draft.tag} list="tags-list" onChange={(e) => setDraft({ ...draft, tag: e.target.value.toLowerCase() })} />
               <datalist id="tags-list">{tags.map((t) => <option key={t} value={t} />)}</datalist>
             </div>
           </div>
 
-          <div className="flex items-center justify-between p-3 rounded-lg border border-border/40 bg-muted/20 mb-4">
+          <div className="flex items-center justify-between p-3 rounded-lg border border-white/[0.04] bg-muted/20 mb-4">
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-primary" />
               <div>
@@ -147,7 +147,7 @@ export default function Mensagens() {
               <label className="text-xs uppercase tracking-wider text-muted-foreground">Mensagem</label>
               <Textarea
                 rows={8}
-                className="bg-input/60 mt-1 font-mono text-sm"
+                className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30 mt-1 font-mono text-sm"
                 value={draft.body}
                 onChange={(e) => setDraft({ ...draft, body: e.target.value })}
               />
@@ -170,7 +170,7 @@ export default function Mensagens() {
           {draft.multiPart && (
             <div className="space-y-3">
               {ensureParts(draft).map((p, idx) => (
-                <div key={idx} className="rounded-lg border border-border/40 bg-muted/10 p-3 animate-fade-in">
+                <div key={idx} className="rounded-lg border border-white/[0.04] bg-muted/20 p-3 animate-fade-in">
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-xs uppercase tracking-wider text-primary font-semibold">Parte {idx + 1}</div>
                     <div className="flex items-center gap-1">
@@ -181,7 +181,7 @@ export default function Mensagens() {
                   </div>
                   <Textarea
                     rows={4}
-                    className="bg-input/60 font-mono text-sm"
+                    className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30 font-mono text-sm"
                     placeholder="Conteúdo desta parte (opcional se anexar mídia)…"
                     value={p.body}
                     onChange={(e) => updatePart(idx, { body: e.target.value })}
@@ -200,7 +200,7 @@ export default function Mensagens() {
                       <Input
                         type="number"
                         min={0}
-                        className="bg-input/60 h-8 w-24"
+                        className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30 h-8 w-24"
                         value={p.delaySeconds}
                         onChange={(e) => updatePart(idx, { delaySeconds: Math.max(0, Number(e.target.value) || 0) })}
                       />
@@ -225,7 +225,7 @@ export default function Mensagens() {
                     {idx > 0 && <div className="text-[10px] text-muted-foreground mb-1">⏱ aguarda {p.delaySeconds}s</div>}
                     {p.media?.kind === "image" && <img src={p.media.dataUrl} alt="" className="rounded max-h-40 mb-1" />}
                     {p.media?.kind === "audio" && <audio controls src={p.media.dataUrl} className="w-full mb-1" />}
-                    {p.body && <div className="whitespace-pre-wrap rounded-md bg-background/40 p-2 border border-border/30">{renderTemplate(p.body, "Maria")}</div>}
+                    {p.body && <div className="whitespace-pre-wrap rounded-md bg-background/40 p-2 border border-white/[0.04]">{renderTemplate(p.body, "Maria")}</div>}
                   </div>
                 ))}
               </div>

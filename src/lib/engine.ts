@@ -397,26 +397,54 @@ export const api = {
       throw new Error(reason);
     }
   },
-  /** Envia mídia (imagem/áudio) direto para um número via POST /send-media. */
+  /** Envia mídia (imagem/áudio) direto para um número via POST /send-media.
+   *  Tenta JSON (numero + mediaData base64 limpo + isAudio). Se o backend
+   *  responder 4xx/415, faz fallback para multipart/form-data com o mesmo `numero`. */
   async sendMediaToNumber(numero: string, media: { dataUrl?: string; file?: File; filename: string; mimetype: string }, caption?: string) {
     const to = sanitizePhoneNumber(numero);
     const store = useAppStore.getState();
     if (!to) throw new Error("Número inválido");
     const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/send-media`;
-    const fd = new FormData();
-    fd.append("numero", to);
-    if (caption) fd.append("caption", caption);
-    if (media.file) {
-      fd.append("file", media.file, media.filename);
-    } else if (media.dataUrl) {
-      const blob = dataUrlToBlobInternal(media.dataUrl);
-      fd.append("file", blob, media.filename);
-    } else {
-      throw new Error("Mídia ausente");
+
+    // Resolver dataUrl → base64 limpo (sem prefixo "data:...;base64,")
+    let dataUrl = media.dataUrl;
+    let mimetype = media.mimetype;
+    if (!dataUrl && media.file) {
+      dataUrl = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result));
+        r.onerror = reject;
+        r.readAsDataURL(media.file!);
+      });
+      mimetype = mimetype || media.file.type;
     }
+    if (!dataUrl) throw new Error("Mídia ausente");
+    const commaIdx = dataUrl.indexOf(",");
+    const mediaDataB64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+    const detectedMime = /data:(.*?);base64/.exec(dataUrl)?.[1];
+    if (!mimetype && detectedMime) mimetype = detectedMime;
+    const isAudio = (mimetype || "").startsWith("audio/");
+
+    const jsonPayload = {
+      numero: to,
+      to,
+      filename: media.filename,
+      mimetype,
+      mediaData: mediaDataB64,
+      caption: caption ?? "",
+      isAudio,
+    };
+    console.log("[ENGINE] POST /send-media (json)", { ...jsonPayload, mediaData: `<${mediaDataB64.length} chars>` });
+
     let res: Response;
     try {
-      res = await fetch(url, { method: "POST", body: fd });
+      res = await fetch(url, {
+        method: "POST",
+        mode: "cors",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(jsonPayload),
+      });
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       const msg = `Erro de conexão com o Sistema local (${detail})`;
@@ -425,6 +453,29 @@ export const api = {
     }
     let payload: { status?: string; success?: boolean; ok?: boolean; error?: string; message?: string } | null = null;
     try { payload = await res.json(); } catch { /* sem corpo */ }
+
+    // Fallback: se o backend recusar JSON, tenta multipart com o mesmo `numero`.
+    if (res.status === 415 || res.status === 400) {
+      console.warn("[ENGINE] /send-media JSON recusado, tentando multipart…", payload);
+      const fd = new FormData();
+      fd.append("numero", to);
+      fd.append("to", to);
+      if (caption) fd.append("caption", caption);
+      if (isAudio) fd.append("isAudio", "true");
+      const blob = media.file ?? dataUrlToBlobInternal(dataUrl);
+      fd.append("file", blob, media.filename);
+      try {
+        res = await fetch(url, { method: "POST", body: fd });
+        payload = null;
+        try { payload = await res.json(); } catch { /* ignore */ }
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        const msg = `Erro de conexão com o Sistema local (${detail})`;
+        store.pushLog({ level: "error", message: msg, contact: to });
+        throw new Error(msg);
+      }
+    }
+
     if (!res.ok) {
       const reason = payload?.error || payload?.message || `HTTP ${res.status}`;
       store.pushLog({ level: "error", message: `Falha ao enviar mídia: ${reason}`, contact: to });
