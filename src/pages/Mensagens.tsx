@@ -147,7 +147,7 @@ export default function Mensagens() {
               <label className="text-xs uppercase tracking-wider text-muted-foreground">Mensagem</label>
               <Textarea
                 rows={8}
-                className="bg-input/60 mt-1 font-mono text-sm"
+                className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30 mt-1 font-mono text-sm"
                 value={draft.body}
                 onChange={(e) => setDraft({ ...draft, body: e.target.value })}
               />
