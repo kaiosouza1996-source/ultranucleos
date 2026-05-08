@@ -251,7 +251,7 @@ export default function Importar() {
             </div>
             <Input
               placeholder="Ex: black-friday-2024"
-              className="bg-input/60"
+              className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30"
               value={defaultTag}
               onChange={(e) => onTagChange(e.target.value.toLowerCase())}
             />
