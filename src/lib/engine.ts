@@ -31,6 +31,46 @@ function dataUrlToBlobInternal(dataUrl: string): Blob {
   return new Blob([arr], { type: mime });
 }
 
+function extractDataUrlMime(value?: string): string {
+  if (!value) return "";
+  return /^data:([^;,]+)(?:;[^,]*)?;base64,/i.exec(value.trim())?.[1]?.toLowerCase() ?? "";
+}
+
+function cleanBase64Payload(value: string): string {
+  let cleaned = String(value ?? "").trim();
+  const dataUrlMatch = /^data:[^,]*,([\s\S]*)$/i.exec(cleaned);
+  if (dataUrlMatch) cleaned = dataUrlMatch[1];
+  cleaned = cleaned.replace(/\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
+  const remainder = cleaned.length % 4;
+  if (remainder) cleaned += "=".repeat(4 - remainder);
+  if (!cleaned || !/^[A-Za-z0-9+/]*={0,2}$/.test(cleaned)) throw new Error("Base64 de mídia inválido");
+  return cleaned;
+}
+
+function normalizeMimeType(mimetype?: string, filename?: string, dataUrl?: string): string {
+  const raw = (mimetype || extractDataUrlMime(dataUrl) || "application/octet-stream").split(";")[0].trim().toLowerCase();
+  const name = (filename || "").toLowerCase();
+  if (raw === "audio/mp3" || name.endsWith(".mp3")) return "audio/mpeg";
+  if (raw === "audio/mpeg" || raw === "audio/ogg" || raw === "audio/webm") return raw;
+  if (name.endsWith(".ogg") || name.endsWith(".opus")) return "audio/ogg";
+  if (name.endsWith(".webm")) return "audio/webm";
+  if (raw.startsWith("image/") || raw.startsWith("audio/")) return raw;
+  return raw;
+}
+
+function normalizeFileName(filename: string, mimeType: string): string {
+  const safe = (filename || `midia-${Date.now()}`).replace(/[\\/:*?"<>|]+/g, "-");
+  const ext = mimeType === "audio/mpeg" ? ".mp3"
+    : mimeType === "audio/ogg" ? ".ogg"
+      : mimeType === "audio/webm" ? ".webm"
+        : mimeType === "image/jpeg" ? ".jpg"
+          : mimeType === "image/png" ? ".png"
+            : mimeType === "image/webp" ? ".webp"
+              : "";
+  if (!ext || safe.toLowerCase().endsWith(ext)) return safe;
+  return `${safe.replace(/\.[a-z0-9]+$/i, "")}${ext}`;
+}
+
 function normalizeEngineContact(raw: unknown): Contact | null {
   if (!raw || typeof raw !== "object") return null;
   const c = raw as Partial<Contact> & { created_at?: number; tag_names?: string };
@@ -398,8 +438,7 @@ export const api = {
     }
   },
   /** Envia mídia (imagem/áudio) direto para um número via POST /send-media.
-   *  Tenta JSON (numero + mediaData base64 limpo + isAudio). Se o backend
-   *  responder 4xx/415, faz fallback para multipart/form-data com o mesmo `numero`. */
+   *  Payload JSON estrito: numero, mediaData limpo, mimeType, fileName, isAudio e mensagem. */
   async sendMediaToNumber(numero: string, media: { dataUrl?: string; file?: File; filename: string; mimetype: string }, caption?: string) {
     const to = sanitizePhoneNumber(numero);
     const store = useAppStore.getState();
@@ -419,29 +458,19 @@ export const api = {
       mimetype = mimetype || media.file.type;
     }
     if (!dataUrl) throw new Error("Mídia ausente");
-    const commaIdx = dataUrl.indexOf(",");
-    const mediaDataB64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
-    const detectedMime = /data:(.*?);base64/.exec(dataUrl)?.[1];
-    if (!mimetype && detectedMime) mimetype = detectedMime;
-    const isAudio = (mimetype || "").startsWith("audio/");
+    const mimeType = normalizeMimeType(mimetype, media.filename, dataUrl);
+    const mediaDataB64 = cleanBase64Payload(dataUrl);
+    const isAudio = mimeType.startsWith("audio/");
+    const fileName = normalizeFileName(media.filename, mimeType);
 
     const legenda = caption ?? "";
     const jsonPayload = {
       numero: to,
-      to,
-      filename: media.filename,
-      // Envia tanto mimeType (camelCase, esperado pelo servidor) quanto mimetype para compatibilidade
-      mimeType: mimetype,
-      mimetype,
       mediaData: mediaDataB64,
-      // Legenda da imagem / texto que acompanha a mídia: enviado como `mensagem` (campo do servidor)
-      // e também como `caption` para compatibilidade com versões anteriores.
-      mensagem: legenda,
-      caption: legenda,
-      // Flag obrigatória para que o WhatsApp renderize áudios como mensagem de voz (PTT)
-      // ao invés de arquivo de documento.
+      mimeType,
+      fileName,
       isAudio,
-      isPtt: isAudio,
+      mensagem: legenda,
     };
     console.log("[ENGINE] POST /send-media (json)", { ...jsonPayload, mediaData: `<${mediaDataB64.length} chars>` });
 
@@ -462,38 +491,6 @@ export const api = {
     }
     let payload: { status?: string; success?: boolean; ok?: boolean; error?: string; message?: string } | null = null;
     try { payload = await res.json(); } catch { /* sem corpo */ }
-
-    // Fallback: se o backend recusar JSON, tenta multipart com o mesmo `numero`.
-    if (res.status === 415 || res.status === 400) {
-      console.warn("[ENGINE] /send-media JSON recusado, tentando multipart…", payload);
-      const fd = new FormData();
-      fd.append("numero", to);
-      fd.append("to", to);
-      if (legenda) {
-        fd.append("mensagem", legenda);
-        fd.append("caption", legenda);
-      }
-      if (mimetype) {
-        fd.append("mimeType", mimetype);
-        fd.append("mimetype", mimetype);
-      }
-      if (isAudio) {
-        fd.append("isAudio", "true");
-        fd.append("isPtt", "true");
-      }
-      const blob = media.file ?? dataUrlToBlobInternal(dataUrl);
-      fd.append("file", blob, media.filename);
-      try {
-        res = await fetch(url, { method: "POST", body: fd });
-        payload = null;
-        try { payload = await res.json(); } catch { /* ignore */ }
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : String(err);
-        const msg = `Erro de conexão com o Sistema local (${detail})`;
-        store.pushLog({ level: "error", message: msg, contact: to });
-        throw new Error(msg);
-      }
-    }
 
     if (!res.ok) {
       const reason = payload?.error || payload?.message || `HTTP ${res.status}`;

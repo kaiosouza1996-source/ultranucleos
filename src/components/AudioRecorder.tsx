@@ -21,9 +21,13 @@ export function AudioRecorder({ onRecorded }: { onRecorded: (audio: RecordedAudi
   const start = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/ogg";
+      const mime = MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")
+        ? "audio/ogg;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/ogg")
+          ? "audio/ogg"
+          : MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+            ? "audio/webm;codecs=opus"
+            : "audio/webm";
       const rec = new MediaRecorder(stream, { mimeType: mime });
       chunksRef.current = [];
       rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
@@ -31,7 +35,8 @@ export function AudioRecorder({ onRecorded }: { onRecorded: (audio: RecordedAudi
         stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(chunksRef.current, { type: mime });
         const dataUrl = await blobToDataUrl(blob);
-        onRecorded({ dataUrl, filename: `gravacao-${Date.now()}.webm`, mimetype: mime });
+        const extension = mime.includes("ogg") ? "ogg" : "webm";
+        onRecorded({ dataUrl, filename: `gravacao-${Date.now()}.${extension}`, mimetype: mime });
       };
       rec.start();
       recRef.current = rec;
