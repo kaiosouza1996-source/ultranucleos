@@ -135,7 +135,7 @@ export default function Importar() {
           <div
             {...getRootProps()}
             className={`glass-card glass-card-hover p-10 text-center cursor-pointer border-2 border-dashed transition-all
-              ${isDragActive ? "border-primary bg-primary/5" : "border-border/40 hover:border-primary/40"}`}
+              ${isDragActive ? "border-primary bg-primary/5" : "border-white/[0.06] hover:border-primary/40"}`}
           >
             <input {...getInputProps()} />
             <div className="w-14 h-14 mx-auto rounded-full bg-primary/10 flex items-center justify-center mb-3">
