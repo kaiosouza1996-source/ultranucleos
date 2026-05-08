@@ -438,8 +438,7 @@ export const api = {
     }
   },
   /** Envia mídia (imagem/áudio) direto para um número via POST /send-media.
-   *  Tenta JSON (numero + mediaData base64 limpo + isAudio). Se o backend
-   *  responder 4xx/415, faz fallback para multipart/form-data com o mesmo `numero`. */
+   *  Payload JSON estrito: numero, mediaData limpo, mimeType, fileName, isAudio e mensagem. */
   async sendMediaToNumber(numero: string, media: { dataUrl?: string; file?: File; filename: string; mimetype: string }, caption?: string) {
     const to = sanitizePhoneNumber(numero);
     const store = useAppStore.getState();
@@ -459,29 +458,19 @@ export const api = {
       mimetype = mimetype || media.file.type;
     }
     if (!dataUrl) throw new Error("Mídia ausente");
-    const commaIdx = dataUrl.indexOf(",");
-    const mediaDataB64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
-    const detectedMime = /data:(.*?);base64/.exec(dataUrl)?.[1];
-    if (!mimetype && detectedMime) mimetype = detectedMime;
-    const isAudio = (mimetype || "").startsWith("audio/");
+    const mimeType = normalizeMimeType(mimetype, media.filename, dataUrl);
+    const mediaDataB64 = cleanBase64Payload(dataUrl);
+    const isAudio = mimeType.startsWith("audio/");
+    const fileName = normalizeFileName(media.filename, mimeType);
 
     const legenda = caption ?? "";
     const jsonPayload = {
       numero: to,
-      to,
-      filename: media.filename,
-      // Envia tanto mimeType (camelCase, esperado pelo servidor) quanto mimetype para compatibilidade
-      mimeType: mimetype,
-      mimetype,
       mediaData: mediaDataB64,
-      // Legenda da imagem / texto que acompanha a mídia: enviado como `mensagem` (campo do servidor)
-      // e também como `caption` para compatibilidade com versões anteriores.
-      mensagem: legenda,
-      caption: legenda,
-      // Flag obrigatória para que o WhatsApp renderize áudios como mensagem de voz (PTT)
-      // ao invés de arquivo de documento.
+      mimeType,
+      fileName,
       isAudio,
-      isPtt: isAudio,
+      mensagem: legenda,
     };
     console.log("[ENGINE] POST /send-media (json)", { ...jsonPayload, mediaData: `<${mediaDataB64.length} chars>` });
 
@@ -502,38 +491,6 @@ export const api = {
     }
     let payload: { status?: string; success?: boolean; ok?: boolean; error?: string; message?: string } | null = null;
     try { payload = await res.json(); } catch { /* sem corpo */ }
-
-    // Fallback: se o backend recusar JSON, tenta multipart com o mesmo `numero`.
-    if (res.status === 415 || res.status === 400) {
-      console.warn("[ENGINE] /send-media JSON recusado, tentando multipart…", payload);
-      const fd = new FormData();
-      fd.append("numero", to);
-      fd.append("to", to);
-      if (legenda) {
-        fd.append("mensagem", legenda);
-        fd.append("caption", legenda);
-      }
-      if (mimetype) {
-        fd.append("mimeType", mimetype);
-        fd.append("mimetype", mimetype);
-      }
-      if (isAudio) {
-        fd.append("isAudio", "true");
-        fd.append("isPtt", "true");
-      }
-      const blob = media.file ?? dataUrlToBlobInternal(dataUrl);
-      fd.append("file", blob, media.filename);
-      try {
-        res = await fetch(url, { method: "POST", body: fd });
-        payload = null;
-        try { payload = await res.json(); } catch { /* ignore */ }
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : String(err);
-        const msg = `Erro de conexão com o Sistema local (${detail})`;
-        store.pushLog({ level: "error", message: msg, contact: to });
-        throw new Error(msg);
-      }
-    }
 
     if (!res.ok) {
       const reason = payload?.error || payload?.message || `HTTP ${res.status}`;
