@@ -69,7 +69,7 @@ export function MediaPreview({
   const [playing, setPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   return (
-    <div className="mt-2 flex items-center gap-2 p-2 rounded-md border border-border/40 bg-muted/20">
+    <div className="mt-2 flex items-center gap-2 p-2 rounded-md border border-white/[0.04] bg-muted/30">
       {media.kind === "image" ? (
         <img src={media.dataUrl} alt={media.filename} className="w-14 h-14 object-cover rounded" />
       ) : (
