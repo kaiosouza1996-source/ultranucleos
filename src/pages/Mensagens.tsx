@@ -170,7 +170,7 @@ export default function Mensagens() {
           {draft.multiPart && (
             <div className="space-y-3">
               {ensureParts(draft).map((p, idx) => (
-                <div key={idx} className="rounded-lg border border-border/40 bg-muted/10 p-3 animate-fade-in">
+                <div key={idx} className="rounded-lg border border-white/[0.04] bg-muted/20 p-3 animate-fade-in">
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-xs uppercase tracking-wider text-primary font-semibold">Parte {idx + 1}</div>
                     <div className="flex items-center gap-1">
