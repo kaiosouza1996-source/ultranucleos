@@ -200,7 +200,7 @@ export default function Mensagens() {
                       <Input
                         type="number"
                         min={0}
-                        className="bg-input/60 h-8 w-24"
+                        className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30 h-8 w-24"
                         value={p.delaySeconds}
                         onChange={(e) => updatePart(idx, { delaySeconds: Math.max(0, Number(e.target.value) || 0) })}
                       />
