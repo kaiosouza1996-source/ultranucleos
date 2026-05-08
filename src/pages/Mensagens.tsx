@@ -122,16 +122,16 @@ export default function Mensagens() {
           <div className="grid md:grid-cols-2 gap-4 mb-4">
             <div>
               <label className="text-xs uppercase tracking-wider text-muted-foreground">Nome</label>
-              <Input className="bg-input/60 mt-1" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+              <Input className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30 mt-1" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
             </div>
             <div>
               <label className="text-xs uppercase tracking-wider text-muted-foreground">Tag alvo</label>
-              <Input className="bg-input/60 mt-1" value={draft.tag} list="tags-list" onChange={(e) => setDraft({ ...draft, tag: e.target.value.toLowerCase() })} />
+              <Input className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30 mt-1" value={draft.tag} list="tags-list" onChange={(e) => setDraft({ ...draft, tag: e.target.value.toLowerCase() })} />
               <datalist id="tags-list">{tags.map((t) => <option key={t} value={t} />)}</datalist>
             </div>
           </div>
 
-          <div className="flex items-center justify-between p-3 rounded-lg border border-border/40 bg-muted/20 mb-4">
+          <div className="flex items-center justify-between p-3 rounded-lg border border-white/[0.04] bg-muted/20 mb-4">
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-primary" />
               <div>
