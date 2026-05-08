@@ -425,14 +425,23 @@ export const api = {
     if (!mimetype && detectedMime) mimetype = detectedMime;
     const isAudio = (mimetype || "").startsWith("audio/");
 
+    const legenda = caption ?? "";
     const jsonPayload = {
       numero: to,
       to,
       filename: media.filename,
+      // Envia tanto mimeType (camelCase, esperado pelo servidor) quanto mimetype para compatibilidade
+      mimeType: mimetype,
       mimetype,
       mediaData: mediaDataB64,
-      caption: caption ?? "",
+      // Legenda da imagem / texto que acompanha a mídia: enviado como `mensagem` (campo do servidor)
+      // e também como `caption` para compatibilidade com versões anteriores.
+      mensagem: legenda,
+      caption: legenda,
+      // Flag obrigatória para que o WhatsApp renderize áudios como mensagem de voz (PTT)
+      // ao invés de arquivo de documento.
       isAudio,
+      isPtt: isAudio,
     };
     console.log("[ENGINE] POST /send-media (json)", { ...jsonPayload, mediaData: `<${mediaDataB64.length} chars>` });
 
@@ -460,8 +469,18 @@ export const api = {
       const fd = new FormData();
       fd.append("numero", to);
       fd.append("to", to);
-      if (caption) fd.append("caption", caption);
-      if (isAudio) fd.append("isAudio", "true");
+      if (legenda) {
+        fd.append("mensagem", legenda);
+        fd.append("caption", legenda);
+      }
+      if (mimetype) {
+        fd.append("mimeType", mimetype);
+        fd.append("mimetype", mimetype);
+      }
+      if (isAudio) {
+        fd.append("isAudio", "true");
+        fd.append("isPtt", "true");
+      }
       const blob = media.file ?? dataUrlToBlobInternal(dataUrl);
       fd.append("file", blob, media.filename);
       try {
