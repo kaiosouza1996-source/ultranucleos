@@ -469,8 +469,18 @@ export const api = {
       const fd = new FormData();
       fd.append("numero", to);
       fd.append("to", to);
-      if (caption) fd.append("caption", caption);
-      if (isAudio) fd.append("isAudio", "true");
+      if (legenda) {
+        fd.append("mensagem", legenda);
+        fd.append("caption", legenda);
+      }
+      if (mimetype) {
+        fd.append("mimeType", mimetype);
+        fd.append("mimetype", mimetype);
+      }
+      if (isAudio) {
+        fd.append("isAudio", "true");
+        fd.append("isPtt", "true");
+      }
       const blob = media.file ?? dataUrlToBlobInternal(dataUrl);
       fd.append("file", blob, media.filename);
       try {
