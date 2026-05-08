@@ -31,6 +31,46 @@ function dataUrlToBlobInternal(dataUrl: string): Blob {
   return new Blob([arr], { type: mime });
 }
 
+function extractDataUrlMime(value?: string): string {
+  if (!value) return "";
+  return /^data:([^;,]+)(?:;[^,]*)?;base64,/i.exec(value.trim())?.[1]?.toLowerCase() ?? "";
+}
+
+function cleanBase64Payload(value: string): string {
+  let cleaned = String(value ?? "").trim();
+  const dataUrlMatch = /^data:[^,]*,([\s\S]*)$/i.exec(cleaned);
+  if (dataUrlMatch) cleaned = dataUrlMatch[1];
+  cleaned = cleaned.replace(/\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
+  const remainder = cleaned.length % 4;
+  if (remainder) cleaned += "=".repeat(4 - remainder);
+  if (!cleaned || !/^[A-Za-z0-9+/]*={0,2}$/.test(cleaned)) throw new Error("Base64 de mídia inválido");
+  return cleaned;
+}
+
+function normalizeMimeType(mimetype?: string, filename?: string, dataUrl?: string): string {
+  const raw = (mimetype || extractDataUrlMime(dataUrl) || "application/octet-stream").split(";")[0].trim().toLowerCase();
+  const name = (filename || "").toLowerCase();
+  if (raw === "audio/mp3" || name.endsWith(".mp3")) return "audio/mpeg";
+  if (raw === "audio/mpeg" || raw === "audio/ogg" || raw === "audio/webm") return raw;
+  if (name.endsWith(".ogg") || name.endsWith(".opus")) return "audio/ogg";
+  if (name.endsWith(".webm")) return "audio/webm";
+  if (raw.startsWith("image/") || raw.startsWith("audio/")) return raw;
+  return raw;
+}
+
+function normalizeFileName(filename: string, mimeType: string): string {
+  const safe = (filename || `midia-${Date.now()}`).replace(/[\\/:*?"<>|]+/g, "-");
+  const ext = mimeType === "audio/mpeg" ? ".mp3"
+    : mimeType === "audio/ogg" ? ".ogg"
+      : mimeType === "audio/webm" ? ".webm"
+        : mimeType === "image/jpeg" ? ".jpg"
+          : mimeType === "image/png" ? ".png"
+            : mimeType === "image/webp" ? ".webp"
+              : "";
+  if (!ext || safe.toLowerCase().endsWith(ext)) return safe;
+  return `${safe.replace(/\.[a-z0-9]+$/i, "")}${ext}`;
+}
+
 function normalizeEngineContact(raw: unknown): Contact | null {
   if (!raw || typeof raw !== "object") return null;
   const c = raw as Partial<Contact> & { created_at?: number; tag_names?: string };
