@@ -286,7 +286,7 @@ export default function Importar() {
 function Stat({ label, value, accent }: { label: string; value: number; accent?: "success" | "warn" | "destructive" }) {
   const cls = accent === "success" ? "text-success" : accent === "warn" ? "text-warning" : accent === "destructive" ? "text-destructive" : "text-foreground";
   return (
-    <div className="px-3 py-1.5 rounded-lg bg-muted/30 border border-border/30">
+    <div className="px-3 py-1.5 rounded-lg bg-muted/30 border border-white/[0.04]">
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
       <div className={`text-lg font-semibold ${cls}`}>{value}</div>
     </div>
