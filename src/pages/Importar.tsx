@@ -234,7 +234,7 @@ export default function Importar() {
               </label>
               <Input
                 disabled={!useFileTag}
-                className="bg-input/60 disabled:opacity-50"
+                className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30 disabled:opacity-50"
                 value={fileTag}
                 onChange={(e) => onFileTagChange(e.target.value.toLowerCase())}
               />
