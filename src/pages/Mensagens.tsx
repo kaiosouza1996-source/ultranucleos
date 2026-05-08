@@ -225,7 +225,7 @@ export default function Mensagens() {
                     {idx > 0 && <div className="text-[10px] text-muted-foreground mb-1">⏱ aguarda {p.delaySeconds}s</div>}
                     {p.media?.kind === "image" && <img src={p.media.dataUrl} alt="" className="rounded max-h-40 mb-1" />}
                     {p.media?.kind === "audio" && <audio controls src={p.media.dataUrl} className="w-full mb-1" />}
-                    {p.body && <div className="whitespace-pre-wrap rounded-md bg-background/40 p-2 border border-border/30">{renderTemplate(p.body, "Maria")}</div>}
+                    {p.body && <div className="whitespace-pre-wrap rounded-md bg-background/40 p-2 border border-white/[0.04]">{renderTemplate(p.body, "Maria")}</div>}
                   </div>
                 ))}
               </div>
