@@ -181,7 +181,7 @@ export default function Mensagens() {
                   </div>
                   <Textarea
                     rows={4}
-                    className="bg-input/60 font-mono text-sm"
+                    className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30 font-mono text-sm"
                     placeholder="Conteúdo desta parte (opcional se anexar mídia)…"
                     value={p.body}
                     onChange={(e) => updatePart(idx, { body: e.target.value })}
