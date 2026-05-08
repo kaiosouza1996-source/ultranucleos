@@ -154,12 +154,12 @@ export default function Importar() {
               </div>
               <div className="grid sm:grid-cols-2 gap-2">
                 {parsed.headers.map((h) => (
-                  <div key={h} className="flex items-center gap-2 p-2 rounded bg-muted/30 border border-border/30">
+                  <div key={h} className="flex items-center gap-2 p-2 rounded bg-muted/30 border border-white/[0.04]">
                     <div className="text-sm font-medium truncate flex-1">{h}</div>
                     <select
                       value={parsed.mapping.byHeader[h]}
                       onChange={(e) => setMapping(h, e.target.value as FieldKey | "ignorar")}
-                      className="text-xs bg-input rounded px-2 py-1 border border-border/40"
+                      className="text-xs bg-input/60 rounded px-2 py-1 border border-white/[0.04]"
                     >
                       {FIELDS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
                     </select>
