@@ -85,11 +85,31 @@ export default function Mensagens() {
     if (target === "draft") setDraft({ ...draft, media });
     else updatePart(target, { media });
   };
-  const handleAudio = (audio: RecordedAudio, target: "draft" | number) => {
+  // Áudio sempre vira uma PARTE SEPARADA — auto-ativa multiPart e adiciona após a parte alvo.
+  const appendAudioAsPart = (media: TemplateMedia, target: "draft" | number) => {
     if (!draft) return;
+    // Garante multiPart com partes existentes preservadas.
+    const wasMulti = !!draft.multiPart;
+    const baseParts: TemplatePart[] = wasMulti
+      ? ensureParts(draft)
+      : [{ body: draft.body, delaySeconds: 0, media: draft.media ?? null }];
+    const insertAfter = target === "draft" ? baseParts.length - 1 : target;
+    const newPart: TemplatePart = { body: "", delaySeconds: 3, media };
+    const next = [...baseParts];
+    next.splice(insertAfter + 1, 0, newPart);
+    setDraft({
+      ...draft,
+      multiPart: true,
+      parts: next,
+      // limpa media do modo simples se estávamos saindo dele
+      media: wasMulti ? draft.media : null,
+    });
+    if (!wasMulti) toast.success("Áudio adicionado como mensagem separada (modo 'Enviar em partes' ativado).");
+    else toast.success("Áudio adicionado como nova parte.");
+  };
+  const handleAudio = (audio: RecordedAudio, target: "draft" | number) => {
     const media: TemplateMedia = { kind: "audio", dataUrl: audio.dataUrl, filename: audio.filename, mimetype: audio.mimetype };
-    if (target === "draft") setDraft({ ...draft, media });
-    else updatePart(target, { media });
+    appendAudioAsPart(media, target);
   };
   const handleAudioFile = async (file: File, target: "draft" | number) => {
     if (!draft) return;
@@ -97,8 +117,7 @@ export default function Mensagens() {
     if (file.size > 16 * 1024 * 1024) { toast.error("Áudio maior que 16MB."); return; }
     const dataUrl = await fileToDataUrl(file);
     const media: TemplateMedia = { kind: "audio", dataUrl, filename: file.name, mimetype: file.type };
-    if (target === "draft") setDraft({ ...draft, media });
-    else updatePart(target, { media });
+    appendAudioAsPart(media, target);
   };
 
   return (
