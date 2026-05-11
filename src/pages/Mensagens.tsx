@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useAppStore, type Template, type TemplatePart, type TemplateMedia } from "@/store/appStore";
 import { useRef, useState, useMemo } from "react";
-import { Plus, Save, Trash2, Copy, MessageSquareText, Layers, ArrowUp, ArrowDown, X, Image as ImageIcon } from "lucide-react";
+import { Plus, Save, Trash2, Copy, MessageSquareText, Layers, ArrowUp, ArrowDown, X, Image as ImageIcon, GripVertical } from "lucide-react";
 import { renderTemplate } from "@/lib/engine";
 import { toast } from "sonner";
 import { AudioRecorder, MediaPreview, fileToDataUrl, type RecordedAudio } from "@/components/AudioRecorder";
@@ -12,6 +12,8 @@ import { AudioRecorder, MediaPreview, fileToDataUrl, type RecordedAudio } from "
 const empty = (): Template => ({ id: crypto.randomUUID(), name: "Novo template", tag: "geral", body: "Olá {nome}! ", updatedAt: Date.now(), multiPart: false, parts: [], media: null });
 
 export default function Mensagens() {
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
   const templates = useAppStore((s) => s.templates);
   const upsert = useAppStore((s) => s.upsertTemplate);
   const remove = useAppStore((s) => s.removeTemplate);
@@ -53,6 +55,14 @@ export default function Mensagens() {
     const j = idx + dir;
     if (j < 0 || j >= parts.length) return;
     [parts[idx], parts[j]] = [parts[j], parts[idx]];
+    setDraft({ ...draft, parts });
+  };
+  const reorderParts = (from: number, to: number) => {
+    if (!draft || from === to) return;
+    const parts = [...ensureParts(draft)];
+    if (from < 0 || from >= parts.length || to < 0 || to >= parts.length) return;
+    const [moved] = parts.splice(from, 1);
+    parts.splice(to, 0, moved);
     setDraft({ ...draft, parts });
   };
   const toggleMulti = (on: boolean) => {
