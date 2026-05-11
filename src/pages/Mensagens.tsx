@@ -199,9 +199,25 @@ export default function Mensagens() {
           {draft.multiPart && (
             <div className="space-y-3">
               {ensureParts(draft).map((p, idx) => (
-                <div key={idx} className="rounded-lg border border-white/[0.04] bg-muted/20 p-3 animate-fade-in">
+                <div
+                  key={idx}
+                  draggable
+                  onDragStart={(e) => { setDragIdx(idx); e.dataTransfer.effectAllowed = "move"; }}
+                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (overIdx !== idx) setOverIdx(idx); }}
+                  onDragLeave={() => { if (overIdx === idx) setOverIdx(null); }}
+                  onDrop={(e) => { e.preventDefault(); if (dragIdx !== null && dragIdx !== idx) reorderParts(dragIdx, idx); setDragIdx(null); setOverIdx(null); }}
+                  onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
+                  className={`rounded-lg border bg-muted/20 p-3 animate-fade-in transition-all
+                    ${overIdx === idx && dragIdx !== null && dragIdx !== idx ? "border-primary/60 bg-primary/5" : "border-white/[0.04]"}
+                    ${dragIdx === idx ? "opacity-50" : ""}`}
+                >
                   <div className="flex items-center justify-between mb-2">
-                    <div className="text-xs uppercase tracking-wider text-primary font-semibold">Parte {idx + 1}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground transition-colors" title="Arrastar para reordenar">
+                        <GripVertical className="w-4 h-4" />
+                      </span>
+                      <div className="text-xs uppercase tracking-wider text-primary font-semibold">Parte {idx + 1}</div>
+                    </div>
                     <div className="flex items-center gap-1">
                       <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => movePart(idx, -1)} disabled={idx === 0}><ArrowUp className="w-3.5 h-3.5" /></Button>
                       <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => movePart(idx, 1)} disabled={idx === ensureParts(draft).length - 1}><ArrowDown className="w-3.5 h-3.5" /></Button>
