@@ -21,22 +21,44 @@ export function AudioRecorder({ onRecorded }: { onRecorded: (audio: RecordedAudi
   const start = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mime = MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")
-        ? "audio/ogg;codecs=opus"
-        : MediaRecorder.isTypeSupported("audio/ogg")
-          ? "audio/ogg"
-          : MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-            ? "audio/webm;codecs=opus"
-            : "audio/webm";
+      // Prioridade: ogg/opus (compatível com WhatsApp PTT) → wav. Evita webm puro quando possível.
+      let mime = "audio/wav";
+      let normalizedMime = "audio/wav";
+      let extension = "wav";
+      if (MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")) {
+        mime = "audio/ogg;codecs=opus";
+        normalizedMime = "audio/ogg; codecs=opus";
+        extension = "ogg";
+      } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
+        mime = "audio/ogg";
+        normalizedMime = "audio/ogg";
+        extension = "ogg";
+      } else if (MediaRecorder.isTypeSupported("audio/wav")) {
+        mime = "audio/wav";
+        normalizedMime = "audio/wav";
+        extension = "wav";
+      } else if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+        // fallback final — alguns navegadores só suportam webm
+        mime = "audio/webm;codecs=opus";
+        normalizedMime = "audio/ogg; codecs=opus"; // re-rotulamos como ogg/opus para o WA
+        extension = "ogg";
+      }
       const rec = new MediaRecorder(stream, { mimeType: mime });
       chunksRef.current = [];
       rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       rec.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunksRef.current, { type: mime });
+        const blob = new Blob(chunksRef.current, { type: normalizedMime });
         const dataUrl = await blobToDataUrl(blob);
-        const extension = mime.includes("ogg") ? "ogg" : "webm";
-        onRecorded({ dataUrl, filename: `gravacao-${Date.now()}.${extension}`, mimetype: mime });
+        // Log de tamanho do payload base64 (sem prefixo) para validar que não está vazio.
+        const commaIdx = dataUrl.indexOf(",");
+        const pureB64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+        console.log(`[AUDIO] Gravação concluída — mime=${normalizedMime}, base64 size=${pureB64.length} chars (${(pureB64.length / 1024).toFixed(1)} KB)`);
+        if (!pureB64 || pureB64.length < 100) {
+          toast.error("Gravação muito curta ou vazia — tente novamente.");
+          return;
+        }
+        onRecorded({ dataUrl, filename: `gravacao-${Date.now()}.${extension}`, mimetype: normalizedMime });
       };
       rec.start();
       recRef.current = rec;
