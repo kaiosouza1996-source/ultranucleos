@@ -605,7 +605,17 @@ export function startCampaign(params: CampaignParams) {
   return;
 }
 
-/** Loop HTTP que dispara para cada contato via POST /send, respeitando intervalo/anti-ban + multi-partes. */
+/**
+ * Loop HTTP sequencial por cliente com delays dinâmicos por parte (jitter ±20%)
+ * + delay anti-ban entre clientes. Respeita pausa longa a cada N envios.
+ *
+ * Hierarquia:
+ *   for cada CONTATO (sequencial)
+ *     for cada PARTE do template
+ *       - aplica delay configurado da parte (com jitter ±20%) se p > 0
+ *       - aguarda success:true (await) antes de seguir
+ *     - após a ÚLTIMA parte, aplica delay anti-ban global antes do próximo cliente
+ */
 async function runHttpCampaign(
   contacts: { id: string; nome: string; telefone: string }[],
   tpl: {
@@ -618,48 +628,98 @@ async function runHttpCampaign(
 ) {
   let sent = 0, failed = 0;
   const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+  // Jitter ±20% sobre um valor de segundos.
+  const jitter = (sec: number) => {
+    const base = Math.max(0, sec);
+    const variation = base * 0.2;
+    const val = base + (Math.random() * 2 - 1) * variation;
+    return Math.max(0, val);
+  };
   const parts = tpl.multiPart && tpl.parts && tpl.parts.length > 0
     ? tpl.parts
     : [{ body: tpl.body, delaySeconds: 0, media: tpl.media ?? null }];
+  const totalParts = parts.length;
+
   for (let i = 0; i < contacts.length; i++) {
-    const s = useAppStore.getState();
-    if (!s.campaign.running) break;
+    const s0 = useAppStore.getState();
+    if (!s0.campaign.running) break;
     while (useAppStore.getState().campaign.paused) await sleep(800);
     const c = contacts[i];
-    s.setCampaign({ currentContact: `${c.nome} (${c.telefone})`, sent, failed });
-    s.pushLog({ level: "info", message: `Enviando para ${c.nome}…`, contact: c.telefone });
+    s0.setCampaign({ currentContact: `${c.nome} (${c.telefone})`, sent, failed });
+    s0.pushLog({ level: "info", message: `▶ Iniciando bloco para ${c.nome} (${totalParts} mensagem${totalParts > 1 ? "s" : ""})`, contact: c.telefone });
+
     let contactFailed = false;
     for (let p = 0; p < parts.length; p++) {
       if (!useAppStore.getState().campaign.running) { contactFailed = true; break; }
       while (useAppStore.getState().campaign.paused) await sleep(800);
       const part = parts[p];
+
+      // Delay dinâmico antes desta parte (não na primeira) com jitter ±20%.
       if (p > 0 && part.delaySeconds > 0) {
-        await sleep(part.delaySeconds * 1000);
+        const wait = jitter(part.delaySeconds);
+        useAppStore.getState().pushLog({
+          level: "info",
+          message: `⏱ Aplicando delay dinâmico de ${wait.toFixed(1)}s antes da mensagem ${p + 1}/${totalParts}…`,
+          contact: c.telefone,
+        });
+        await sleep(wait * 1000);
       }
+
       const text = renderTemplate(part.body, c.nome);
       const hasText = text.trim().length > 0;
+      const hasMedia = !!part.media;
+      if (!hasText && !hasMedia) continue;
+
+      useAppStore.getState().pushLog({
+        level: "info",
+        message: `Enviando mensagem ${p + 1}/${totalParts} para ${c.nome}…`,
+        contact: c.telefone,
+      });
+
       try {
-        if (part.media) {
-          await api.sendMediaToNumber(c.telefone, part.media, hasText ? text : undefined);
-        } else if (hasText) {
-          await api.sendToNumber(c.telefone, text);
+        if (hasMedia) {
+          await api.sendMediaToNumber(c.telefone, part.media!, hasText ? text : undefined);
         } else {
-          continue;
+          await api.sendToNumber(c.telefone, text);
         }
-      } catch {
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        useAppStore.getState().pushLog({
+          level: "error",
+          message: `Falha na mensagem ${p + 1}/${totalParts} para ${c.nome}: ${reason}. Pulando para o próximo cliente.`,
+          contact: c.telefone,
+        });
         contactFailed = true;
         break;
       }
     }
-    if (contactFailed) failed++; else sent++;
+
+    if (contactFailed) failed++; else {
+      sent++;
+      useAppStore.getState().pushLog({ level: "success", message: `✔ Bloco concluído para ${c.nome}.`, contact: c.telefone });
+    }
     useAppStore.getState().setCampaign({ sent, failed });
+
+    // Após o ÚLTIMO contato, não aplica pausa.
+    if (i === contacts.length - 1) break;
+
+    // Pausa longa anti-ban a cada N envios.
     if (settings.longPauseEvery && (i + 1) % settings.longPauseEvery === 0) {
-      useAppStore.getState().pushLog({ level: "info", message: `Pausa longa de ~${settings.longPauseSeconds}s` });
+      useAppStore.getState().pushLog({
+        level: "info",
+        message: `🛡 Pausa longa anti-ban de ~${settings.longPauseSeconds}s após ${i + 1} clientes.`,
+      });
       await sleep(settings.longPauseSeconds * 1000);
     } else {
-      const min = settings.minDelay * 1000;
-      const max = settings.maxDelay * 1000;
-      await sleep(min + Math.random() * Math.max(0, max - min));
+      // Delay anti-ban entre clientes (intervalo aleatório dentro do range global).
+      const min = Math.max(0, settings.minDelay) * 1000;
+      const max = Math.max(min, settings.maxDelay * 1000);
+      const wait = min + Math.random() * Math.max(0, max - min);
+      useAppStore.getState().pushLog({
+        level: "info",
+        message: `🛡 Bloco concluído. Iniciando pausa de segurança Anti-ban de ${(wait / 1000).toFixed(1)}s antes do próximo cliente…`,
+      });
+      await sleep(wait);
     }
   }
   const fin = useAppStore.getState();
