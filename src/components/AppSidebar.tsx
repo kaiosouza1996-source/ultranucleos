@@ -19,7 +19,7 @@ export function AppSidebar() {
   const pendentes = conversations.filter((c) => c.status === "pendente").length;
 
   return (
-    <aside className="hidden md:flex w-60 shrink-0 flex-col h-screen sticky top-0 bg-sidebar/60 backdrop-blur-xl z-10 relative">
+    <aside className="hidden lg:flex w-60 shrink-0 flex-col h-screen sticky top-0 bg-sidebar/60 backdrop-blur-xl z-10 relative">
       {/* Linha degradê suave separando o menu do painel */}
       <div
         aria-hidden
