@@ -76,8 +76,11 @@
   html, body, #root { height: 100%; }
   body {
     @apply text-foreground;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Inter', system-ui, sans-serif;
     font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
     background: hsl(var(--background));
     background-image:
       radial-gradient(ellipse 80% 60% at 50% 30%, hsl(213 100% 45% / 0.18), transparent 60%),
