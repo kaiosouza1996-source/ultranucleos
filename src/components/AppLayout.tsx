@@ -12,8 +12,7 @@ export default function AppLayout() {
       <div className="flex-1 min-w-0 flex flex-col">
         <MobileTopBar />
         <main
-          className="flex-1 min-w-0 px-3 sm:px-5 md:px-8 py-4 sm:py-6 md:py-8 relative z-[1] scrollbar-thin overflow-x-hidden pb-28 md:pb-8"
-          style={{ paddingBottom: "max(7rem, calc(env(safe-area-inset-bottom) + 6rem))" }}
+          className="flex-1 min-w-0 px-4 sm:px-5 md:px-8 py-4 sm:py-6 md:py-8 relative z-[1] scrollbar-thin overflow-x-hidden pb-[calc(7rem+env(safe-area-inset-bottom))] md:pb-8"
         >
           <div className="max-w-7xl mx-auto">
             <Outlet />
