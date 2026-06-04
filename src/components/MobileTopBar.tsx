@@ -21,7 +21,7 @@ export function MobileTopBar() {
 
   return (
     <header
-      className="md:hidden sticky top-0 z-30 bg-background/70 backdrop-blur-2xl"
+      className="lg:hidden sticky top-0 z-30 bg-background/70 backdrop-blur-2xl"
       style={{
         paddingTop: "env(safe-area-inset-top)",
         WebkitBackdropFilter: "saturate(180%) blur(24px)",
