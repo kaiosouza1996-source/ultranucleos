@@ -287,6 +287,42 @@ export default function Importar() {
             </div>
           )}
 
+          <div className="glass-card p-5 animate-fade-in border border-primary/20">
+            <div className="flex items-center gap-2 mb-3">
+              <TagIcon className="w-4 h-4 text-success" />
+              <h3 className="font-semibold text-sm">Etiqueta no WhatsApp</h3>
+              <span className="ml-auto text-[10px] uppercase tracking-wider text-success/80 bg-success/10 px-2 py-0.5 rounded-full">nativa</span>
+            </div>
+            <label className="flex items-center gap-2 mb-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={applyWaLabel}
+                onChange={(e) => setApplyWaLabel(e.target.checked)}
+                className="accent-primary"
+              />
+              <span className="text-xs">Marcar todos os contatos importados com uma etiqueta do WhatsApp Business</span>
+            </label>
+            <Input
+              disabled={!applyWaLabel}
+              placeholder="Ex: Lista Black Friday"
+              className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30 disabled:opacity-50"
+              value={waLabel}
+              onChange={(e) => setWaLabel(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground mt-2">
+              Esta etiqueta é criada (ou reutilizada) <strong className="text-foreground">direto no WhatsApp</strong> via Sistema local. Assim, ao abrir o WhatsApp no celular, o nome do cliente aparece marcado com a lista de origem.
+            </p>
+            {waProgress && (
+              <div className="mt-3">
+                <div className="h-1.5 bg-muted/40 rounded-full overflow-hidden">
+                  <div className="h-full bg-success transition-all" style={{ width: `${(waProgress.done / Math.max(waProgress.total, 1)) * 100}%` }} />
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1">Aplicando no WhatsApp: {waProgress.done}/{waProgress.total}</p>
+              </div>
+            )}
+          </div>
+
+
           <div className="glass-card p-5 animate-fade-in">
             <div className="flex items-center gap-2 mb-3">
               <TagIcon className="w-4 h-4 text-primary" />
