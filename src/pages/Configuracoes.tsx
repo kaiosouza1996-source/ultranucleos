@@ -406,10 +406,24 @@ function CustomFieldsEditor() {
 }
 
 // ─────────────── helpers ───────────────
-function NumField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function NumField({ label, value, onChange, info }: { label: string; value: number; onChange: (v: number) => void; info?: string }) {
   return (
     <div>
-      <label className="text-xs uppercase tracking-wider text-muted-foreground">{label}</label>
+      <div className="flex items-center gap-1.5">
+        <label className="text-xs uppercase tracking-wider text-muted-foreground">{label}</label>
+        {info && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button type="button" className="text-muted-foreground hover:text-primary transition-colors">
+                <Info className="w-3 h-3" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-xs leading-relaxed">
+              {info}
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
       <Input
         type="number"
         min={0}
