@@ -68,6 +68,15 @@ export default function Importar() {
       setFileName(file.name);
       const auto = slugFromFileName(file.name);
       setFileTag(auto);
+      // Sugere uma label legível para o WhatsApp (Title Case do nome do arquivo)
+      const pretty = file.name
+        .replace(/\.[^.]+$/, "")
+        .replace(/[_\-]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/\b\w/g, (c) => c.toUpperCase())
+        .slice(0, 40);
+      setWaLabel(pretty || auto);
       try {
         const p = await parseSpreadsheet(file);
         setParsed(p);
