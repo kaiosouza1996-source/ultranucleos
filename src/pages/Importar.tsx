@@ -29,6 +29,10 @@ export default function Importar() {
   const [useFileTag, setUseFileTag] = useState(true);
   const [rows, setRows] = useState<NormalizedRow[]>([]);
   const [fileName, setFileName] = useState("");
+  // Etiqueta NATIVA do WhatsApp (aparece ao lado do nome do contato no celular)
+  const [applyWaLabel, setApplyWaLabel] = useState(true);
+  const [waLabel, setWaLabel] = useState<string>("");
+  const [waProgress, setWaProgress] = useState<{ done: number; total: number } | null>(null);
 
   const reprocess = (p: ParsedSheet, tag: string, fTag?: string) => {
     const known = new Set(existing.map((c) => c.telefone));
