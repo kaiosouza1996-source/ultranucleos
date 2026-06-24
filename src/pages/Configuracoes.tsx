@@ -9,7 +9,8 @@ import {
   type CustomFieldType,
   type LogEntry,
 } from "@/store/appStore";
-import { Save, Shield, Trash, Plus, X, GripVertical, Briefcase, QrCode, ScrollText, CheckCircle2, RefreshCw, LogOut, Filter, Download } from "lucide-react";
+import { Save, Shield, Trash, Plus, X, GripVertical, Briefcase, QrCode, ScrollText, CheckCircle2, RefreshCw, LogOut, Filter, Download, Info } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
