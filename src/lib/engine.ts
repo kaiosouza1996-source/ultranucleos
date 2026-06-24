@@ -518,6 +518,56 @@ export const api = {
   async pushContacts(contacts: unknown[]) {
     await fetchJson("/contacts", { method: "POST", body: JSON.stringify(contacts) });
   },
+  /**
+   * Aplica uma etiqueta NATIVA do WhatsApp Business a um número.
+   * O servidor local (whatsapp-web.js) cria a label se ainda não existir
+   * e a vincula ao chat — assim ela aparece no WhatsApp do celular.
+   * Endpoint esperado: POST /labels/apply  { numero, label }
+   */
+  async applyWhatsappLabel(numero: string, label: string) {
+    const to = sanitizePhoneNumber(numero);
+    if (!to) throw new Error("Número inválido");
+    if (!label?.trim()) throw new Error("Label vazia");
+    const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/labels/apply`;
+    const res = await fetch(url, {
+      method: "POST",
+      mode: "cors",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ numero: to, label: label.trim() }),
+    });
+    let payload: { status?: string; success?: boolean; ok?: boolean; error?: string; message?: string } | null = null;
+    try { payload = await res.json(); } catch { /* sem corpo */ }
+    if (!res.ok) {
+      const reason = payload?.error || payload?.message || `HTTP ${res.status}`;
+      throw new Error(reason);
+    }
+    const ok = !payload || payload.status === "sucesso" || payload.status === "success" || payload.success === true || payload.ok === true;
+    if (!ok) {
+      const reason = payload?.error || payload?.message || `Status inesperado: ${payload?.status ?? "desconhecido"}`;
+      throw new Error(reason);
+    }
+    return payload;
+  },
+  /** Aplica a mesma label em massa, sequencialmente, com pequeno delay anti-ban. */
+  async applyWhatsappLabelBulk(numeros: string[], label: string, opts?: { delayMs?: number; onProgress?: (done: number, total: number, ok: boolean, num: string) => void }) {
+    const delay = opts?.delayMs ?? 600;
+    let okCount = 0; let failCount = 0;
+    for (let i = 0; i < numeros.length; i++) {
+      const n = numeros[i];
+      try {
+        await api.applyWhatsappLabel(n, label);
+        okCount++;
+        opts?.onProgress?.(i + 1, numeros.length, true, n);
+      } catch (e) {
+        failCount++;
+        useAppStore.getState().pushLog({ level: "error", message: `Falha ao aplicar etiqueta "${label}": ${(e as Error).message}`, contact: n });
+        opts?.onProgress?.(i + 1, numeros.length, false, n);
+      }
+      if (i < numeros.length - 1) await new Promise((r) => setTimeout(r, delay));
+    }
+    return { ok: okCount, fail: failCount };
+  },
   async loadQuickReplies() {
     try {
       const data = await fetchJson<{ id: string; atalho: string; body: string }[]>("/quick-replies");

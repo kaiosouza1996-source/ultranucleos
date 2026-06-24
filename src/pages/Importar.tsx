@@ -29,6 +29,10 @@ export default function Importar() {
   const [useFileTag, setUseFileTag] = useState(true);
   const [rows, setRows] = useState<NormalizedRow[]>([]);
   const [fileName, setFileName] = useState("");
+  // Etiqueta NATIVA do WhatsApp (aparece ao lado do nome do contato no celular)
+  const [applyWaLabel, setApplyWaLabel] = useState(true);
+  const [waLabel, setWaLabel] = useState<string>("");
+  const [waProgress, setWaProgress] = useState<{ done: number; total: number } | null>(null);
 
   const reprocess = (p: ParsedSheet, tag: string, fTag?: string) => {
     const known = new Set(existing.map((c) => c.telefone));
@@ -64,6 +68,15 @@ export default function Importar() {
       setFileName(file.name);
       const auto = slugFromFileName(file.name);
       setFileTag(auto);
+      // Sugere uma label legível para o WhatsApp (Title Case do nome do arquivo)
+      const pretty = file.name
+        .replace(/\.[^.]+$/, "")
+        .replace(/[_\-]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/\b\w/g, (c) => c.toUpperCase())
+        .slice(0, 40);
+      setWaLabel(pretty || auto);
       try {
         const p = await parseSpreadsheet(file);
         setParsed(p);
@@ -115,6 +128,36 @@ export default function Importar() {
     addContacts(newContacts);
     try { await api.pushContacts(newContacts); } catch { /* engine offline = só local */ }
     toast.success(`${newContacts.length} contatos importados`);
+
+    // Aplica a etiqueta NATIVA do WhatsApp (label do WhatsApp Business) em cada contato.
+    // Assim, ao abrir o WhatsApp fora do sistema, o cliente já aparece marcado com a lista de origem.
+    const labelToApply = waLabel.trim();
+    if (applyWaLabel && labelToApply) {
+      const numeros = newContacts.map((c) => c.telefone).filter(Boolean);
+      if (numeros.length > 0) {
+        setWaProgress({ done: 0, total: numeros.length });
+        const tId = toast.loading(`Aplicando etiqueta "${labelToApply}" no WhatsApp (0/${numeros.length})…`);
+        try {
+          const res = await api.applyWhatsappLabelBulk(numeros, labelToApply, {
+            delayMs: 500,
+            onProgress: (done, total) => {
+              setWaProgress({ done, total });
+              toast.loading(`Aplicando etiqueta "${labelToApply}" no WhatsApp (${done}/${total})…`, { id: tId });
+            },
+          });
+          if (res.fail === 0) {
+            toast.success(`Etiqueta "${labelToApply}" aplicada em ${res.ok} contatos no WhatsApp.`, { id: tId });
+          } else {
+            toast.warning(`Etiqueta aplicada em ${res.ok}/${numeros.length}. ${res.fail} falhas (veja o log).`, { id: tId });
+          }
+        } catch (e) {
+          toast.error(`Não foi possível aplicar a etiqueta: ${(e as Error).message}`, { id: tId });
+        } finally {
+          setWaProgress(null);
+        }
+      }
+    }
+
     setRows([]); setParsed(null); setFileName(""); setFileTag("");
   };
 
@@ -243,6 +286,42 @@ export default function Importar() {
               </p>
             </div>
           )}
+
+          <div className="glass-card p-5 animate-fade-in border border-primary/20">
+            <div className="flex items-center gap-2 mb-3">
+              <TagIcon className="w-4 h-4 text-success" />
+              <h3 className="font-semibold text-sm">Etiqueta no WhatsApp</h3>
+              <span className="ml-auto text-[10px] uppercase tracking-wider text-success/80 bg-success/10 px-2 py-0.5 rounded-full">nativa</span>
+            </div>
+            <label className="flex items-center gap-2 mb-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={applyWaLabel}
+                onChange={(e) => setApplyWaLabel(e.target.checked)}
+                className="accent-primary"
+              />
+              <span className="text-xs">Marcar todos os contatos importados com uma etiqueta do WhatsApp Business</span>
+            </label>
+            <Input
+              disabled={!applyWaLabel}
+              placeholder="Ex: Lista Black Friday"
+              className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30 disabled:opacity-50"
+              value={waLabel}
+              onChange={(e) => setWaLabel(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground mt-2">
+              Esta etiqueta é criada (ou reutilizada) <strong className="text-foreground">direto no WhatsApp</strong> via Sistema local. Assim, ao abrir o WhatsApp no celular, o nome do cliente aparece marcado com a lista de origem.
+            </p>
+            {waProgress && (
+              <div className="mt-3">
+                <div className="h-1.5 bg-muted/40 rounded-full overflow-hidden">
+                  <div className="h-full bg-success transition-all" style={{ width: `${(waProgress.done / Math.max(waProgress.total, 1)) * 100}%` }} />
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1">Aplicando no WhatsApp: {waProgress.done}/{waProgress.total}</p>
+              </div>
+            )}
+          </div>
+
 
           <div className="glass-card p-5 animate-fade-in">
             <div className="flex items-center gap-2 mb-3">
