@@ -9,7 +9,8 @@ import {
   type CustomFieldType,
   type LogEntry,
 } from "@/store/appStore";
-import { Save, Shield, Trash, Plus, X, GripVertical, Briefcase, QrCode, ScrollText, CheckCircle2, RefreshCw, LogOut, Filter, Download } from "lucide-react";
+import { Save, Shield, Trash, Plus, X, GripVertical, Briefcase, QrCode, ScrollText, CheckCircle2, RefreshCw, LogOut, Filter, Download, Info } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
@@ -57,18 +58,63 @@ export default function Configuracoes() {
               <Shield className="w-4 h-4 text-primary" />
               <h3 className="font-semibold">Controle anti-ban</h3>
             </div>
+            <p className="text-xs text-muted-foreground -mt-2">
+              O disparo é <strong className="text-foreground">sequencial</strong>: o sistema envia <strong className="text-foreground">todas as partes do template para um cliente</strong> e só então aguarda o intervalo abaixo antes de iniciar o próximo. Passe o mouse no <Info className="inline w-3 h-3" /> para entender cada parâmetro.
+            </p>
             <div className="grid grid-cols-2 gap-4">
-              <NumField label="Delay mínimo (s)"        value={settings.minDelay}         onChange={(v) => update({ minDelay: v })} />
-              <NumField label="Delay máximo (s)"        value={settings.maxDelay}         onChange={(v) => update({ maxDelay: v })} />
-              <NumField label="Limite por execução"     value={settings.perRunLimit}      onChange={(v) => update({ perRunLimit: v })} />
-              <NumField label="Limite diário"           value={settings.perDayLimit}      onChange={(v) => update({ perDayLimit: v })} />
-              <NumField label="Pausa longa a cada N"    value={settings.longPauseEvery}   onChange={(v) => update({ longPauseEvery: v })} />
-              <NumField label="Duração pausa longa (s)" value={settings.longPauseSeconds} onChange={(v) => update({ longPauseSeconds: v })} />
+              <NumField
+                label="Delay mínimo entre clientes (s)"
+                value={settings.minDelay}
+                onChange={(v) => update({ minDelay: v })}
+                info="Tempo MÍNIMO (em segundos) que o sistema espera depois de terminar TODAS as mensagens de um cliente, antes de começar o próximo. Quanto maior, mais seguro contra banimento. Recomendado: 5s ou mais."
+              />
+              <NumField
+                label="Delay máximo entre clientes (s)"
+                value={settings.maxDelay}
+                onChange={(v) => update({ maxDelay: v })}
+                info="Tempo MÁXIMO entre clientes. O sistema sorteia um valor aleatório entre o mínimo e o máximo a cada envio, para simular comportamento humano. Recomendado: 15s ou mais."
+              />
+              <NumField
+                label="Limite por execução"
+                value={settings.perRunLimit}
+                onChange={(v) => update({ perRunLimit: v })}
+                info="Quantidade MÁXIMA de contatos disparados em uma única campanha. Mesmo que você selecione mais contatos, o sistema só processa este número por vez. Evita que disparos enormes saiam de controle."
+              />
+              <NumField
+                label="Limite diário"
+                value={settings.perDayLimit}
+                onChange={(v) => update({ perDayLimit: v })}
+                info="Teto total de mensagens enviadas em um único dia (somando todas as campanhas). Para contas novas use 50–100/dia; contas aquecidas suportam 300+."
+              />
+              <NumField
+                label="Pausa longa a cada N clientes"
+                value={settings.longPauseEvery}
+                onChange={(v) => update({ longPauseEvery: v })}
+                info="A cada quantos clientes o sistema faz uma PAUSA LONGA de descanso (simula uma pausa para café). Ex.: 25 = depois de cada 25 clientes enviados, pausa por X segundos antes de continuar."
+              />
+              <NumField
+                label="Duração da pausa longa (s)"
+                value={settings.longPauseSeconds}
+                onChange={(v) => update({ longPauseSeconds: v })}
+                info="Quanto tempo dura a pausa longa, em segundos. Quanto maior, mais o WhatsApp entende que há uma pessoa real por trás. Recomendado: 60–120s."
+              />
             </div>
             <div className="flex items-center justify-between pt-2 border-t border-border/30">
-              <div>
-                <div className="text-sm font-medium">Evitar duplicados</div>
-                <div className="text-xs text-muted-foreground">Não reenviar para o mesmo contato no mesmo dia</div>
+              <div className="flex items-center gap-2">
+                <div>
+                  <div className="text-sm font-medium">Evitar duplicados</div>
+                  <div className="text-xs text-muted-foreground">Não reenviar para o mesmo contato no mesmo dia</div>
+                </div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button type="button" className="text-muted-foreground hover:text-primary transition-colors">
+                      <Info className="w-3.5 h-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    Quando ativo, se um contato já recebeu mensagem neste mesmo dia, ele é ignorado automaticamente em novas campanhas — protege contra spam e reduz risco de bloqueio.
+                  </TooltipContent>
+                </Tooltip>
               </div>
               <Switch checked={settings.avoidDuplicates} onCheckedChange={(v) => update({ avoidDuplicates: v })} />
             </div>
@@ -360,10 +406,24 @@ function CustomFieldsEditor() {
 }
 
 // ─────────────── helpers ───────────────
-function NumField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function NumField({ label, value, onChange, info }: { label: string; value: number; onChange: (v: number) => void; info?: string }) {
   return (
     <div>
-      <label className="text-xs uppercase tracking-wider text-muted-foreground">{label}</label>
+      <div className="flex items-center gap-1.5">
+        <label className="text-xs uppercase tracking-wider text-muted-foreground">{label}</label>
+        {info && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button type="button" className="text-muted-foreground hover:text-primary transition-colors">
+                <Info className="w-3 h-3" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-xs leading-relaxed">
+              {info}
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
       <Input
         type="number"
         min={0}

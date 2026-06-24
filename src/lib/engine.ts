@@ -636,20 +636,14 @@ export function startCampaign(params: CampaignParams) {
     if (c.status !== "novo") store.moveContactStage(c.id, "novo");
   }
 
-  // Caminho 1 — Sistema online via WS: delega para o backend (intervalo, anti-ban etc.)
-  if (engineClient.send({ type: "start-campaign", contacts, template: tpl, settings: store.settings })) {
-    store.resetCampaign();
-    store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
-    store.pushLog({ level: "info", message: `Campanha iniciada no Sistema: ${contacts.length} contatos.` });
-    return;
-  }
-
-  // Caminho 2 — SEMPRE tenta HTTP /send (zero-trava).
+  // Disparo SEMPRE sequencial pelo frontend via HTTP /send.
+  // (Não delegamos mais para o WS do backend, que poderia processar em paralelo.)
+  // Garante: 1 cliente por vez → todas as partes do template → delay anti-ban → próximo cliente.
   store.resetCampaign();
   store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
   store.pushLog({
     level: "info",
-    message: `Campanha iniciada via HTTP (${contacts.length} contatos) → http://localhost:8787/send`,
+    message: `Campanha iniciada (sequencial, 1 cliente por vez): ${contacts.length} contatos. Intervalo entre clientes: ${store.settings.minDelay}–${store.settings.maxDelay}s.`,
   });
   runHttpCampaign(contacts, tpl, store.settings);
   return;
