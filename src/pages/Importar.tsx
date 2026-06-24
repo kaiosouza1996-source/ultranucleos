@@ -128,6 +128,36 @@ export default function Importar() {
     addContacts(newContacts);
     try { await api.pushContacts(newContacts); } catch { /* engine offline = só local */ }
     toast.success(`${newContacts.length} contatos importados`);
+
+    // Aplica a etiqueta NATIVA do WhatsApp (label do WhatsApp Business) em cada contato.
+    // Assim, ao abrir o WhatsApp fora do sistema, o cliente já aparece marcado com a lista de origem.
+    const labelToApply = waLabel.trim();
+    if (applyWaLabel && labelToApply) {
+      const numeros = newContacts.map((c) => c.telefone).filter(Boolean);
+      if (numeros.length > 0) {
+        setWaProgress({ done: 0, total: numeros.length });
+        const tId = toast.loading(`Aplicando etiqueta "${labelToApply}" no WhatsApp (0/${numeros.length})…`);
+        try {
+          const res = await api.applyWhatsappLabelBulk(numeros, labelToApply, {
+            delayMs: 500,
+            onProgress: (done, total) => {
+              setWaProgress({ done, total });
+              toast.loading(`Aplicando etiqueta "${labelToApply}" no WhatsApp (${done}/${total})…`, { id: tId });
+            },
+          });
+          if (res.fail === 0) {
+            toast.success(`Etiqueta "${labelToApply}" aplicada em ${res.ok} contatos no WhatsApp.`, { id: tId });
+          } else {
+            toast.warning(`Etiqueta aplicada em ${res.ok}/${numeros.length}. ${res.fail} falhas (veja o log).`, { id: tId });
+          }
+        } catch (e) {
+          toast.error(`Não foi possível aplicar a etiqueta: ${(e as Error).message}`, { id: tId });
+        } finally {
+          setWaProgress(null);
+        }
+      }
+    }
+
     setRows([]); setParsed(null); setFileName(""); setFileTag("");
   };
 
