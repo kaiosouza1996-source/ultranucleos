@@ -12,6 +12,23 @@ dist
 dist-ssr
 *.local
 
+# Segredos — nunca commitar (API keys, chaves Supabase, etc.)
+.env
+.env.*
+!.env.example
+
+# Configuração local do Claude Code — contém chaves/tokens usados durante
+# sessões de desenvolvimento (ex: .claude/settings.local.json), nunca deve
+# ir pro repositório.
+.claude/
+
+# Artefatos gerados pelo graphify (grafo de conhecimento do repo) —
+# regenerável a qualquer momento via `graphify .`, não é código-fonte.
+graphify-out/
+
+# Backups/dumps pontuais de dados operacionais — nunca versionar.
+backup_*.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

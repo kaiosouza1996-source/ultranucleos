@@ -7,11 +7,25 @@
  */
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { useAppStore, type ChatMessage, type Contact, type Conversation, type CustomField, type PipelineStage, type Tag } from "@/store/appStore";
+import { useAppStore, type AntiBanSettings, type ChatMessage, type Contact, type Conversation, type CustomField, type PipelineStage, type Tag } from "@/store/appStore";
+import { dispatchCommsMessage } from "@/lib/commsSocket";
+import { dispatchNotificationMessage, type AppNotification } from "@/lib/notifications";
+import { useNotificationsStore } from "@/store/notificationsStore";
 
 // URL do engine: usa variável de ambiente em produção, localhost em dev
 export const ENGINE_HTTP = (import.meta.env.VITE_ENGINE_URL || "http://localhost:8787").replace(/\/$/, "");
-export const ENGINE_WS = ENGINE_HTTP.replace(/^http/, "ws") + "/ws";
+
+// API key obrigatória (item 2 do plano de segurança) — o engine recusa (401)
+// qualquer requisição sem ela. Vai tanto no header (chamadas REST) quanto na
+// query string (WebSocket e <img>/<audio src> de mídia, que não enviam headers).
+export const ENGINE_API_KEY = import.meta.env.VITE_ENGINE_API_KEY || "";
+export const ENGINE_WS = ENGINE_HTTP.replace(/^http/, "ws") + "/ws" + (ENGINE_API_KEY ? `?apiKey=${encodeURIComponent(ENGINE_API_KEY)}` : "");
+
+// Em produção, defina VITE_DISABLE_MOCK=true para desligar completamente o modo
+// simulação: sem o Sistema local (engine) acessível, o painel fica "desconectado"
+// de verdade em vez de fabricar um QR/conexão falsos — evita que alguém confunda
+// uma simulação com uma conexão real de WhatsApp.
+export const MOCK_DISABLED = String(import.meta.env.VITE_DISABLE_MOCK ?? "").toLowerCase() === "true";
 
 /**
  * Limpeza rigorosa de número: remove parênteses, espaços, traços, pontos,
@@ -92,6 +106,25 @@ function normalizeEngineContact(raw: unknown): Contact | null {
     tags,
     customData: c.customData,
     createdAt: Number(c.createdAt ?? c.created_at ?? Date.now()),
+    // Cliente da Assessoria / Lead Frio + Cadência — o backend já devolve
+    // camelCase direto (ver decorateContact em whatsapp-engine/server.js).
+    isClient: !!c.isClient,
+    isClientSince: c.isClientSince ?? null,
+    atuaMercadoFinanceiro: c.atuaMercadoFinanceiro ?? null,
+    responsavelId: c.responsavelId ?? null,
+    lastContactAt: c.lastContactAt ?? null,
+    conversationStartedAt: c.conversationStartedAt ?? null,
+    cadenceStartedAt: c.cadenceStartedAt ?? null,
+    cadenceLastTouchAt: c.cadenceLastTouchAt ?? null,
+    cadenceTouches: c.cadenceTouches,
+    cadencePaused: !!c.cadencePaused,
+    cadenceStage: c.cadenceStage ?? "NONE",
+    cadenceDueAt: c.cadenceDueAt ?? null,
+    cadenceOverdue: !!c.cadenceOverdue,
+    deleteRequestedBy: c.deleteRequestedBy ?? null,
+    deleteRequestedByName: c.deleteRequestedByName ?? null,
+    deleteRequestedAt: c.deleteRequestedAt ?? null,
+    hasCrmStage: !!c.hasCrmStage,
   };
 }
 
@@ -179,16 +212,32 @@ function handleEngineMessage(msg: EngineMessage) {
     case "ready":
     case "disconnected":
     case "connecting": {
-      const status = (msg.type === "hello" ? (msg.status as string) : msg.type) as
-        "qr" | "ready" | "disconnected" | "connecting";
-      store.setStatus(status, { qr: msg.qr ? String(msg.qr) : undefined, me: msg.me ? String(msg.me) : undefined });
+      const connectionId = msg.connectionId ? String(msg.connectionId) : "default";
+      // status/qr/me (singular) só refletem a conexão 'default' — compatibilidade
+      // com o resto do app, que ainda assume um número só. Outras conexões
+      // atualizam a lista `connections` (ver connections-changed/snapshot).
+      if (connectionId === "default") {
+        const status = (msg.type === "hello" ? (msg.status as string) : msg.type) as
+          "qr" | "ready" | "disconnected" | "connecting";
+        store.setStatus(status, { qr: msg.qr ? String(msg.qr) : undefined, me: msg.me ? String(msg.me) : undefined });
+      } else {
+        api.listConnections().catch(() => {});
+      }
       break;
     }
+    case "connections-snapshot":
+      store.setConnections((msg.connections as typeof store.connections) ?? []);
+      break;
+    case "connections-changed":
+      api.listConnections().catch(() => {});
+      break;
     case "log":
       store.pushLog({
         level: (msg.level as LogLevel) ?? "info",
         message: String(msg.message ?? ""),
         contact: msg.contact ? String(msg.contact) : undefined,
+        actorId: msg.actorId ? String(msg.actorId) : undefined,
+        actorName: msg.actorName ? String(msg.actorName) : undefined,
       });
       break;
     case "progress":
@@ -210,14 +259,13 @@ function handleEngineMessage(msg: EngineMessage) {
       if (m && m.chat_id && m.id) {
         console.log("[WS] nova mensagem para chat", m.chat_id, m);
         store.pushMessage(m);
-        // Auto-classificação CRM: ao receber a PRIMEIRA resposta de um contato
-        // que está como "novo" no pipeline, move para "em-atendimento".
+        // Qualificação do CRM é sempre manual (Parte B1) — só registra o
+        // evento no feed de atividades, nunca move a etapa sozinho.
         if (!m.from_me) {
           const tel = String(m.chat_id).replace(/\D+/g, "");
           const contact = store.contacts.find((c) => c.telefone === tel);
-          if (contact && (contact.status === "novo" || !contact.status)) {
-            store.moveContactStage(contact.id, "em-atendimento");
-            store.pushLog({ level: "info", message: `${contact.nome} respondeu — movido para "Em atendimento"`, contact: tel });
+          if (contact) {
+            store.pushLog({ level: "info", message: `${contact.nome} respondeu`, contact: tel });
           }
         }
       }
@@ -226,6 +274,25 @@ function handleEngineMessage(msg: EngineMessage) {
     case "conversations-changed":
       api.loadConversations().catch(() => {});
       break;
+    case "message-edited": {
+      const chatId = String(msg.chatId ?? "");
+      const messageId = String(msg.messageId ?? "");
+      if (chatId && messageId) {
+        store.patchMessage(chatId, messageId, { body: String(msg.body ?? ""), edited_at: Number(msg.editedAt ?? Date.now()) });
+      }
+      break;
+    }
+    case "message-revoked": {
+      const chatId = String(msg.chatId ?? "");
+      const messageId = String(msg.messageId ?? "");
+      if (chatId && messageId) {
+        store.patchMessage(chatId, messageId, {
+          revoked_at: Number(msg.revokedAt ?? Date.now()),
+          revoked_by_name: msg.revokedByName ? String(msg.revokedByName) : null,
+        });
+      }
+      break;
+    }
     case "contacts-changed":
       api.loadContacts().catch(() => {});
       break;
@@ -235,8 +302,38 @@ function handleEngineMessage(msg: EngineMessage) {
     case "custom-fields-changed":
       api.loadCustomFields().catch(() => {});
       break;
-    case "ack":
-      // optional UI update — could update single message ack
+    case "ack": {
+      // Antes era um no-op — os dois tracinhos (✓✓) só atualizavam depois de
+      // um reload completo da conversa, nunca em tempo real via WS.
+      const chatId = String(msg.chatId ?? "");
+      const messageId = String(msg.id ?? "");
+      if (chatId && messageId) {
+        store.patchMessage(chatId, messageId, { ack: Number(msg.ack ?? 0) });
+      }
+      break;
+    }
+    case "notification:new": {
+      const n = msg.notification as AppNotification;
+      useNotificationsStore.getState().pushNew(n);
+      // Popup (toast) só para os dois tipos de agenda — mensagem interna é
+      // frequente e não urgente, só incrementa o badge do sino (pedido
+      // explícito: nunca interromper quem está atendendo cliente).
+      if (n.tipo !== "MENSAGEM_INTERNA") {
+        toast(n.preview || (n.tipo === "AGENDA_LEMBRETE" ? "Lembrete de agenda" : "Novo evento corporativo"), {
+          action: { label: "Ver agenda", onClick: () => { window.location.href = "/agenda"; } },
+        });
+      }
+      break;
+    }
+    case "agenda:event-created":
+      dispatchNotificationMessage(msg);
+      break;
+    default:
+      // Mensagens da Comunicação Interna (comms:subscribe/typing/presence/...)
+      // reaproveitam esta mesma conexão WS — ver src/lib/commsSocket.ts.
+      if (typeof msg.type === "string" && msg.type.startsWith("comms:")) {
+        dispatchCommsMessage(msg);
+      }
       break;
   }
 }
@@ -244,11 +341,21 @@ function handleEngineMessage(msg: EngineMessage) {
 // ─────────────────── REST helpers ───────────────────
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  // Garante que sempre usamos http:// (nunca https) para o Sistema local.
-  const url = ENGINE_HTTP.replace(/^https:/, "http:") + path;
+  // Usa ENGINE_HTTP como está configurado (http em dev local, https em produção).
+  // NUNCA forçar downgrade para http: aqui — em produção o painel roda em HTTPS
+  // (Railway) e o navegador bloqueia por mixed content qualquer fetch para http://,
+  // derrubando silenciosamente todas as chamadas REST (enviar mensagem, carregar
+  // conversas, etc.) mesmo com o WebSocket (wss://) aparentando estar conectado.
+  const url = ENGINE_HTTP + path;
   const res = await fetch(url, {
     ...init,
-    headers: { "content-type": "application/json", ...(init?.headers || {}) },
+    // O cookie de sessão (httpOnly) vai automaticamente em toda chamada com
+    // credentials:"include" — não precisa mais montar um header manual com
+    // token. Pipeline/tags/configurações anti-ban são organização pessoal por
+    // usuário, e o motor precisa saber quem está perguntando pra isolar os
+    // dados corretamente (ver whatsapp-engine/auth.js:sessionMiddleware).
+    credentials: "include",
+    headers: { "content-type": "application/json", "x-api-key": ENGINE_API_KEY, ...(init?.headers || {}) },
   });
   // Tenta parsear o JSON mesmo em caso de erro para extrair mensagem do servidor.
   let payload: unknown = null;
@@ -267,22 +374,30 @@ export const api = {
     const store = useAppStore.getState();
     if (!store.engineOnline) return;
     try {
-      const [contacts, tags, conversations, stages, fields] = await Promise.all([
+      const [contacts, tags, conversations, stages, fields, settings] = await Promise.all([
         fetchJson<unknown[]>("/contacts").catch(() => null),
-        fetchJson<Tag[]>("/tags"),
+        fetchJson<Tag[]>("/tags").catch(() => null),
         fetchJson<Conversation[]>("/conversations"),
         fetchJson<PipelineStage[]>("/pipeline/stages").catch(() => null),
         fetchJson<CustomField[]>("/custom-fields").catch(() => null),
+        fetchJson<Partial<AntiBanSettings>>("/settings").catch(() => null),
       ]);
       if (contacts) {
         const normalized = contacts.map(normalizeEngineContact).filter(Boolean) as Contact[];
         if (normalized.length > 0 || store.contacts.length === 0) store.setContacts(normalized);
       }
-      store.setTags(tags);
+      if (tags) store.setTags(tags);
       store.setConversations(conversations);
       if (stages?.length) store.setPipelineStages(stages);
       if (fields) store.setCustomFields(fields);
+      if (settings) store.updateSettings(settings);
     } catch { /* ignore — modo offline */ }
+  },
+  async getSettings() {
+    return fetchJson<Partial<AntiBanSettings>>("/settings");
+  },
+  async updateSettingsRemote(patch: Partial<AntiBanSettings>) {
+    return fetchJson("/settings", { method: "PUT", body: JSON.stringify(patch) });
   },
   async loadPipelineStages() {
     try {
@@ -300,7 +415,7 @@ export const api = {
     try {
       await fetchJson(`/contacts/${encodeURIComponent(contactId)}/stage`, {
         method: "POST",
-        body: JSON.stringify({ to, user: "me" }),
+        body: JSON.stringify({ to }),
       });
     } catch { /* ignore — store já mudou local */ }
   },
@@ -315,6 +430,23 @@ export const api = {
     const data = await fetchJson<Conversation[]>("/conversations");
     useAppStore.getState().setConversations(data);
   },
+  /**
+   * Foto de perfil real do WhatsApp, com cache no store (nunca refaz a
+   * chamada pro mesmo telefone na mesma sessão — o backend já tem seu
+   * próprio cache de 24h, mas isso evita bater no endpoint a cada render).
+   */
+  async loadAvatar(telefone: string) {
+    const tel = sanitizePhoneNumber(telefone);
+    if (!tel) return;
+    const store = useAppStore.getState();
+    if (tel in store.avatars) return;
+    try {
+      const resp = await fetchJson<{ path: string | null }>(`/avatars/${encodeURIComponent(tel)}`);
+      store.setAvatar(tel, resp.path ?? null);
+    } catch {
+      store.setAvatar(tel, null);
+    }
+  },
   async loadMessages(chatId: string) {
     const data = await fetchJson<ChatMessage[]>(`/conversations/${encodeURIComponent(chatId)}/messages`);
     useAppStore.getState().setMessages(chatId, data);
@@ -322,6 +454,15 @@ export const api = {
   },
   async markRead(chatId: string) {
     await fetchJson(`/conversations/${encodeURIComponent(chatId)}/read`, { method: "POST" });
+  },
+  async markUnread(chatId: string) {
+    await fetchJson(`/conversations/${encodeURIComponent(chatId)}/mark-unread`, { method: "POST" });
+  },
+  async pinConversation(chatId: string) {
+    await fetchJson(`/conversations/${encodeURIComponent(chatId)}/pin`, { method: "POST" });
+  },
+  async unpinConversation(chatId: string) {
+    await fetchJson(`/conversations/${encodeURIComponent(chatId)}/unpin`, { method: "POST" });
   },
   async assume(chatId: string) {
     await fetchJson(`/conversations/${encodeURIComponent(chatId)}/assume`, {
@@ -332,40 +473,82 @@ export const api = {
   async release(chatId: string) {
     await fetchJson(`/conversations/${encodeURIComponent(chatId)}/release`, { method: "POST" });
   },
+  /**
+   * Inicia (ou reabre) uma conversa pelo número da empresa escolhido.
+   * Se já existir uma conversa ATIVA com esse cliente (em qualquer número) e
+   * `force` não for passado, o backend recusa e devolve `conflict:true` em
+   * vez de criar/mover a conversa — a UI decide então se abre a existente ou
+   * chama de novo com `force:true`.
+   */
+  async startConversation(telefone: string, nome: string, connectionId: string, force = false) {
+    return fetchJson<{ conflict?: boolean; conversationId: string; receiverLast4?: string | null }>(
+      "/conversations/start",
+      { method: "POST", body: JSON.stringify({ telefone, nome, connectionId, force }) },
+    );
+  },
+  /** Transfere a conversa direto pra outro colaborador (já assumida por ele). */
+  async transferConversation(chatId: string, toUserId: string) {
+    await fetchJson(`/conversations/${encodeURIComponent(chatId)}/transfer`, {
+      method: "POST",
+      body: JSON.stringify({ toUserId }),
+    });
+  },
   async finish(chatId: string) {
     await fetchJson(`/conversations/${encodeURIComponent(chatId)}/finish`, { method: "POST" });
   },
   async sendText(chatId: string, body: string) {
-    // Sanitiza o número (mantém apenas dígitos) antes de chamar /send.
-    const cleanId = sanitizePhoneNumber(chatId) || chatId;
+    // NUNCA sanitizar/derrubar dígitos aqui: chatId já é o JID completo da
+    // conversa (ex.: "5521982818751@c.us"), construído em Atendimento.tsx.
+    // Antes este método rodava sanitizePhoneNumber(chatId), que arranca o
+    // sufixo "@c.us" — o resultado (só dígitos) virava tanto o parâmetro da
+    // rota quanto o próprio chatId repassado ao whatsapp-web.js no servidor,
+    // que exige o JID completo pra client.sendMessage(...). Isso quebrava
+    // todo envio pela aba Atendimento.
     try {
       const resp = await fetchJson<{ status?: string; success?: boolean; error?: string; message?: string }>(
-        `/conversations/${encodeURIComponent(cleanId)}/send`,
-        { method: "POST", body: JSON.stringify({ body, to: cleanId }) },
+        `/conversations/${encodeURIComponent(chatId)}/send`,
+        { method: "POST", body: JSON.stringify({ body }) },
       );
       // Mesmo com 200, validar se o Sistema confirmou sucesso.
       const ok = resp?.status === "sucesso" || resp?.status === "success" || resp?.success === true;
       if (!ok) {
         const reason = resp?.error || resp?.message || `Status inesperado: ${resp?.status ?? "desconhecido"}`;
-        useAppStore.getState().pushLog({ level: "error", message: `Falha ao enviar: ${reason}`, contact: cleanId });
+        useAppStore.getState().pushLog({ level: "error", message: `Falha ao enviar: ${reason}`, contact: chatId });
         throw new Error(reason);
       }
       useAppStore.getState().setEngineOnline(true);
       useAppStore.getState().setStatus("ready");
-      useAppStore.getState().pushLog({ level: "success", message: "Mensagem enviada.", contact: cleanId });
+      useAppStore.getState().pushLog({ level: "success", message: "Mensagem enviada.", contact: chatId });
       return resp;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      useAppStore.getState().pushLog({ level: "error", message: `Erro do Sistema: ${msg}`, contact: cleanId });
+      useAppStore.getState().pushLog({ level: "error", message: `Erro do Sistema: ${msg}`, contact: chatId });
       throw err;
     }
+  },
+  /** Edita uma mensagem já enviada por nós (WhatsApp só permite dentro de uma
+   * janela curta após o envio) — reflete de verdade no WhatsApp do cliente. */
+  async editMessage(messageId: string, body: string) {
+    return fetchJson<{ ok: boolean }>(`/messages/${encodeURIComponent(messageId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ body }),
+    });
+  },
+  /** "Apagar para todos" no WhatsApp real — fail-closed no backend (ver
+   * POST /messages/:id/delete-for-everyone): se o WhatsApp não confirmar que
+   * a revogação-para-todos é permitida, a rota rejeita e nada muda aqui nem
+   * lá. Conteúdo original nunca é apagado — só marcado revoked_at. */
+  async deleteForEveryone(messageId: string) {
+    return fetchJson<{ ok: boolean }>(`/messages/${encodeURIComponent(messageId)}/delete-for-everyone`, {
+      method: "POST",
+    });
   },
   /**
    * Envia mensagem direta para um número (rota POST /send do Sistema local).
    * Payload: { numero: "5521999999999", mensagem: "..." }
    * Sanitiza telefone, valida resposta e gera logs claros (incluindo erro de rede).
    */
-  async sendToNumber(numero: string, mensagem: string) {
+  async sendToNumber(numero: string, mensagem: string, connectionId = "default") {
     const to = sanitizePhoneNumber(numero);
     const store = useAppStore.getState();
     if (!to) {
@@ -373,8 +556,8 @@ export const api = {
       store.pushLog({ level: "error", message: msg, contact: numero });
       throw new Error(msg);
     }
-    const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/send`;
-    const payloadOut = { numero: to, mensagem };
+    const url = `${ENGINE_HTTP}/send`;
+    const payloadOut = { numero: to, mensagem, connectionId };
     console.log("[ENGINE] POST", url, payloadOut);
     let res: Response;
     try {
@@ -382,9 +565,11 @@ export const api = {
         method: "POST",
         mode: "cors",
         cache: "no-store",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
+          "X-API-Key": ENGINE_API_KEY,
         },
         body: JSON.stringify(payloadOut),
       });
@@ -416,34 +601,49 @@ export const api = {
     store.pushLog({ level: "success", message: "Mensagem enviada.", contact: to });
     return payload;
   },
-  async sendMedia(chatId: string, file: File, caption: string) {
-    const cleanId = sanitizePhoneNumber(chatId) || chatId;
+  async sendMedia(chatId: string, file: File, caption: string, asDocument = false) {
+    // Mesmo bug do sendText: chatId já é o JID completo da conversa
+    // ("...@c.us") — sanitizePhoneNumber() arrancava o sufixo, quebrando
+    // tanto o envio de áudio (gravação PTT) quanto de imagem/documento pela
+    // aba Atendimento.
     const fd = new FormData();
     fd.append("file", file);
     fd.append("caption", caption);
-    const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/conversations/${encodeURIComponent(cleanId)}/send-media`;
-    const res = await fetch(url, { method: "POST", body: fd });
-    let payload: { status?: string; success?: boolean; error?: string; message?: string } | null = null;
+    if (asDocument) fd.append("asDocument", "true");
+    const url = `${ENGINE_HTTP}/conversations/${encodeURIComponent(chatId)}/send-media`;
+    const res = await fetch(url, { method: "POST", body: fd, credentials: "include", headers: { "X-API-Key": ENGINE_API_KEY } });
+    let payload: { ok?: boolean; status?: string; success?: boolean; error?: string; message?: string } | null = null;
     try { payload = await res.json(); } catch { /* ignore */ }
     if (!res.ok) {
       const reason = payload?.error || payload?.message || `HTTP ${res.status}`;
-      useAppStore.getState().pushLog({ level: "error", message: `Falha ao enviar mídia: ${reason}`, contact: cleanId });
+      useAppStore.getState().pushLog({ level: "error", message: `Falha ao enviar mídia: ${reason}`, contact: chatId });
       throw new Error(reason);
     }
-    const ok = !payload || payload.status === "sucesso" || payload.status === "success" || payload.success === true;
+    // POST /conversations/:id/send-media só devolve { ok: true } (sem
+    // `status`/`success`) — checar só esses dois campos fazia todo envio de
+    // mídia (imagem/documento) cair no "Status inesperado: desconhecido"
+    // mesmo quando o arquivo chegava certinho no WhatsApp do cliente.
+    const ok = !payload || payload.ok === true || payload.status === "sucesso" || payload.status === "success" || payload.success === true;
     if (!ok) {
       const reason = payload?.error || payload?.message || `Status inesperado: ${payload?.status ?? "desconhecido"}`;
-      useAppStore.getState().pushLog({ level: "error", message: `Falha ao enviar mídia: ${reason}`, contact: cleanId });
+      useAppStore.getState().pushLog({ level: "error", message: `Falha ao enviar mídia: ${reason}`, contact: chatId });
       throw new Error(reason);
     }
   },
+  /** Compartilha um contato (vCard nativo do WhatsApp) — opção "Contato" do menu "+". */
+  async sendContact(chatId: string, nome: string, telefone: string) {
+    return fetchJson(`/conversations/${encodeURIComponent(chatId)}/send-contact`, {
+      method: "POST",
+      body: JSON.stringify({ nome, telefone }),
+    });
+  },
   /** Envia mídia (imagem/áudio) direto para um número via POST /send-media.
    *  Payload JSON estrito: numero, mediaData limpo, mimeType, fileName, isAudio e mensagem. */
-  async sendMediaToNumber(numero: string, media: { dataUrl?: string; file?: File; filename: string; mimetype: string }, caption?: string) {
+  async sendMediaToNumber(numero: string, media: { dataUrl?: string; file?: File; filename: string; mimetype: string }, caption?: string, connectionId = "default") {
     const to = sanitizePhoneNumber(numero);
     const store = useAppStore.getState();
     if (!to) throw new Error("Número inválido");
-    const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/send-media`;
+    const url = `${ENGINE_HTTP}/send-media`;
 
     // Resolver dataUrl → base64 limpo (sem prefixo "data:...;base64,")
     let dataUrl = media.dataUrl;
@@ -471,6 +671,7 @@ export const api = {
       fileName,
       isAudio,
       mensagem: legenda,
+      connectionId,
     };
     console.log("[ENGINE] POST /send-media (json)", { ...jsonPayload, mediaData: `<${mediaDataB64.length} chars>` });
 
@@ -480,7 +681,8 @@ export const api = {
         method: "POST",
         mode: "cors",
         cache: "no-store",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        credentials: "include",
+        headers: { "Content-Type": "application/json", Accept: "application/json", "X-API-Key": ENGINE_API_KEY },
         body: JSON.stringify(jsonPayload),
       });
     } catch (err) {
@@ -519,63 +721,75 @@ export const api = {
     await fetchJson("/contacts", { method: "POST", body: JSON.stringify(contacts) });
   },
   /**
-   * Aplica uma etiqueta NATIVA do WhatsApp Business a um número.
-   * O servidor local (whatsapp-web.js) cria a label se ainda não existir
-   * e a vincula ao chat — assim ela aparece no WhatsApp do celular.
-   * Endpoint esperado: POST /labels/apply  { numero, label }
+   * Persiste edição de ficha no servidor — antes desta função, `updateContact`
+   * do appStore só mexia em memória/localStorage (bug real: edições nunca
+   * sincronizavam entre colegas/computadores). A rota PATCH /contacts/:id já
+   * existia no backend, só nunca era chamada por aqui.
    */
-  async applyWhatsappLabel(numero: string, label: string) {
-    const to = sanitizePhoneNumber(numero);
-    if (!to) throw new Error("Número inválido");
-    if (!label?.trim()) throw new Error("Label vazia");
-    const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/labels/apply`;
-    const res = await fetch(url, {
-      method: "POST",
-      mode: "cors",
-      cache: "no-store",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ numero: to, label: label.trim() }),
-    });
-    let payload: { status?: string; success?: boolean; ok?: boolean; error?: string; message?: string } | null = null;
-    try { payload = await res.json(); } catch { /* sem corpo */ }
-    if (!res.ok) {
-      const reason = payload?.error || payload?.message || `HTTP ${res.status}`;
-      throw new Error(reason);
-    }
-    const ok = !payload || payload.status === "sucesso" || payload.status === "success" || payload.success === true || payload.ok === true;
-    if (!ok) {
-      const reason = payload?.error || payload?.message || `Status inesperado: ${payload?.status ?? "desconhecido"}`;
-      throw new Error(reason);
-    }
-    return payload;
+  async updateContact(id: string, patch: Record<string, unknown>) {
+    // A rota PATCH /contacts/:id espera snake_case pros campos de cadência
+    // (schema do SQLite), enquanto o resto do app usa Contact em camelCase —
+    // traduz aqui pra manter os call sites (Contatos.tsx/CRM.tsx) simples.
+    const body: Record<string, unknown> = { ...patch };
+    if ("isClient" in body) { body.is_client = body.isClient; delete body.isClient; }
+    if ("atuaMercadoFinanceiro" in body) { body.atua_mercado_financeiro = body.atuaMercadoFinanceiro; delete body.atuaMercadoFinanceiro; }
+    if ("responsavelId" in body) { body.responsavel_id = body.responsavelId; delete body.responsavelId; }
+    return fetchJson(`/contacts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) });
   },
-  /** Aplica a mesma label em massa, sequencialmente, com pequeno delay anti-ban. */
-  async applyWhatsappLabelBulk(numeros: string[], label: string, opts?: { delayMs?: number; onProgress?: (done: number, total: number, ok: boolean, num: string) => void }) {
-    const delay = opts?.delayMs ?? 600;
-    let okCount = 0; let failCount = 0;
-    for (let i = 0; i < numeros.length; i++) {
-      const n = numeros[i];
-      try {
-        await api.applyWhatsappLabel(n, label);
-        okCount++;
-        opts?.onProgress?.(i + 1, numeros.length, true, n);
-      } catch (e) {
-        failCount++;
-        useAppStore.getState().pushLog({ level: "error", message: `Falha ao aplicar etiqueta "${label}": ${(e as Error).message}`, contact: n });
-        opts?.onProgress?.(i + 1, numeros.length, false, n);
-      }
-      if (i < numeros.length - 1) await new Promise((r) => setTimeout(r, delay));
-    }
-    return { ok: okCount, fail: failCount };
+  /**
+   * Contato não pode simplesmente ser apagado por qualquer usuário — quem não
+   * é Sócio só pede a exclusão (o contato continua existindo, marcado como
+   * "exclusão pendente" pra todo mundo, até um Sócio aprovar/rejeitar). Sócio
+   * chamando esta mesma rota apaga na hora (ele já é quem aprovaria mesmo).
+   */
+  async requestDeleteContact(id: string) {
+    return fetchJson<{ ok: boolean; deleted?: boolean; pending?: boolean }>(
+      `/contacts/${encodeURIComponent(id)}/request-delete`, { method: "POST" },
+    );
+  },
+  async approveDeleteContact(id: string) {
+    return fetchJson<{ ok: boolean }>(`/contacts/${encodeURIComponent(id)}/approve-delete`, { method: "POST" });
+  },
+  async rejectDeleteContact(id: string) {
+    return fetchJson<{ ok: boolean }>(`/contacts/${encodeURIComponent(id)}/reject-delete`, { method: "POST" });
+  },
+  /** Confirma manualmente o toque do estágio de cadência atual — nunca envia
+   * mensagem nenhuma, só registra que o colaborador já fez o contato pelo
+   * WhatsApp de verdade. `gotResponse` só é relevante ao confirmar o D75. */
+  async markCadenceTouch(id: string, gotResponse?: boolean) {
+    return fetchJson<{ ok: boolean; stage: string; dueAt: number | null }>(
+      `/contacts/${encodeURIComponent(id)}/cadence/touch`,
+      { method: "POST", body: JSON.stringify({ gotResponse: !!gotResponse }) },
+    );
+  },
+  async loadCadencia(tab: string, estagio?: string) {
+    const qs = new URLSearchParams({ tab, ...(estagio ? { estagio } : {}) });
+    const rows = await fetchJson<unknown[]>(`/cadencia?${qs.toString()}`);
+    return rows.map(normalizeEngineContact).filter(Boolean) as Contact[];
+  },
+  async loadCadenciaConvertidos() {
+    const rows = await fetchJson<unknown[]>(`/cadencia/convertidos`);
+    return rows.map(normalizeEngineContact).filter(Boolean) as Contact[];
+  },
+  /** Lista de colaboradores para o dropdown "Responsável" — reaproveita a
+   * rota de perfis já usada pela Comunicação Interna. */
+  async loadProfiles() {
+    return fetchJson<{ id: string; fullName: string; role: string }[]>(`/comms/profiles`);
   },
   async loadQuickReplies() {
     try {
-      const data = await fetchJson<{ id: string; atalho: string; body: string }[]>("/quick-replies");
-      useAppStore.getState().setQuickReplies(data as never);
-      return data;
+      const data = await fetchJson<{ id: string; atalho: string; body: string; visibility?: string; created_by?: string | null; created_by_name?: string | null }[]>("/quick-replies");
+      const mapped = data.map((r) => ({
+        id: r.id, atalho: r.atalho, body: r.body,
+        visibility: (r.visibility === "shared" ? "shared" : "personal") as "shared" | "personal",
+        createdBy: r.created_by ?? null,
+        createdByName: r.created_by_name ?? null,
+      }));
+      useAppStore.getState().setQuickReplies(mapped);
+      return mapped;
     } catch { return []; }
   },
-  async saveQuickReply(q: { id?: string; atalho: string; body: string }) {
+  async saveQuickReply(q: { id?: string; atalho: string; body: string; visibility?: "personal" | "shared" }) {
     await fetchJson("/quick-replies", { method: "POST", body: JSON.stringify(q) });
   },
   async deleteQuickReply(id: string) {
@@ -584,7 +798,67 @@ export const api = {
   async fetchMetrics(days = 7) {
     return fetchJson<MetricsResponse>(`/metrics?days=${days}`);
   },
-  mediaUrl(p?: string | null) { return p ? ENGINE_HTTP + p : undefined; },
+  // <img>/<audio src> não conseguem enviar headers customizados — a API key
+  // vai como query string aqui (mesma chave, já exposta no bundle do frontend).
+  mediaUrl(p?: string | null) {
+    if (!p) return undefined;
+    const sep = p.includes("?") ? "&" : "?";
+    return `${ENGINE_HTTP}${p}${ENGINE_API_KEY ? `${sep}apiKey=${encodeURIComponent(ENGINE_API_KEY)}` : ""}`;
+  },
+  /** Arquivar conversa (item 3) — NUNCA deleta; restrito a Sócio no engine, exige justificativa. */
+  async archiveConversation(chatId: string, reason: string) {
+    return fetchJson(`/conversations/${encodeURIComponent(chatId)}/archive`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    });
+  },
+  /** Desarquivar — restrito a Sócio, mesmo padrão do archive. */
+  async unarchiveConversation(chatId: string) {
+    return fetchJson(`/conversations/${encodeURIComponent(chatId)}/unarchive`, { method: "POST" });
+  },
+  /** Busca de auditoria (Sócio) — inclui conversas arquivadas. */
+  async auditSearchConversations(params: { name?: string; from?: number; to?: number; keyword?: string; archivedBy?: string }) {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== "") qs.set(k, String(v));
+    return fetchJson<Conversation[]>(`/audit/conversations?${qs.toString()}`);
+  },
+  /** Log de auditoria bruto (quem/quando/por quê de cada arquivamento) — Sócio. */
+  async auditLog() {
+    return fetchJson<{ id: string; ts: number; actor: string; actor_role: string; action: string; target_type: string; target_id: string; reason: string; details: string }[]>(
+      `/audit/log`,
+    );
+  },
+  // ─────────── Múltiplos números de WhatsApp ───────────
+  async listConnections() {
+    const list = await fetchJson<{ id: string; label: string; status: string; me?: string | null; qr?: string | null; last4?: string | null }[]>("/connections");
+    useAppStore.getState().setConnections(list as never);
+    return list;
+  },
+  /** Cadastrar um novo número — restrito a Sócio no engine. */
+  async createConnection(id: string, label: string) {
+    return fetchJson("/connections", { method: "POST", body: JSON.stringify({ id, label }) });
+  },
+  /** Remover um número (não é possível remover o "default") — restrito a Sócio. */
+  async deleteConnection(id: string) {
+    return fetchJson(`/connections/${encodeURIComponent(id)}`, { method: "DELETE" });
+  },
+  async requestQrForConnection(id: string) {
+    return fetchJson(`/connections/${encodeURIComponent(id)}/request-qr`, { method: "POST" });
+  },
+  async logoutConnection(id: string) {
+    return fetchJson(`/connections/${encodeURIComponent(id)}/logout`, { method: "POST" });
+  },
+  async reconnectConnection(id: string) {
+    return fetchJson(`/connections/${encodeURIComponent(id)}/reconnect`, { method: "POST" });
+  },
+  // ─────────── Trava de disparo por número (servidor) ───────────
+  /** Tenta reservar o direito de rodar uma campanha para este número. 409 se já houver uma em andamento (de qualquer usuário). */
+  async lockCampaign(connectionId = "default") {
+    return fetchJson<{ ok: true }>("/campaigns/lock", { method: "POST", body: JSON.stringify({ connectionId }) });
+  },
+  async unlockCampaign(connectionId = "default") {
+    return fetchJson("/campaigns/unlock", { method: "POST", body: JSON.stringify({ connectionId }) });
+  },
 };
 
 export interface MetricsResponse {
@@ -595,6 +869,11 @@ export interface MetricsResponse {
     sent: number; errors: number;
     successRate: number | null;
     avgFirstResponseMs: number;
+    // Cliente da Assessoria / Lead Frio + Cadência de Follow-up
+    clientesAssessoria: number; leadsFrios: number; semContato30d: number;
+    cadenceD1: number; cadenceD3: number; cadenceD7: number; cadenceD15: number; cadenceD75: number;
+    cadenceEncerrado: number; cadenciaAtiva: number;
+    convertidosEsteMes: number; taxaConversao: number | null;
   };
   series: { day: string; envios: number; ts: number }[];
   funnel: { key: string; label: string; color: string; ord: number; count: number }[];
@@ -603,6 +882,7 @@ export interface MetricsResponse {
 
 // ─────────────────── MOCK MODE ───────────────────
 function startMockMode() {
+  if (MOCK_DISABLED) return;
   if (mockTimer) return;
   window.setTimeout(startMockQR, 800);
   mockTimer = window.setInterval(() => {
@@ -612,8 +892,15 @@ function startMockMode() {
 }
 
 export function mockConnectWhatsApp() {
+  if (MOCK_DISABLED) {
+    useAppStore.getState().pushLog({
+      level: "warn",
+      message: "Modo simulação está desativado (VITE_DISABLE_MOCK=true). Conecte o Sistema local para usar o WhatsApp real.",
+    });
+    return;
+  }
   const store = useAppStore.getState();
-  store.setStatus("ready", { me: "Demo (modo simulação)" });
+  store.setStatus("ready", { me: "Demo (modo simulação — NÃO é uma conexão real)" });
   store.pushLog({ level: "success", message: "Conexão simulada estabelecida (sem Sistema local)." });
 }
 export function mockDisconnect() {
@@ -625,27 +912,72 @@ export function mockDisconnect() {
 // ─────────────────── Campaigns ───────────────────
 export interface CampaignParams { contactIds: string[]; templateId: string }
 
-export function startCampaign(params: CampaignParams) {
+// Lock de nível de módulo — independente do ciclo de render do React.
+// Garante que um segundo clique (ou uma segunda chamada concorrente) nunca
+// inicie um segundo loop de disparo enquanto o primeiro não terminar.
+let campaignLock = false;
+
+export function isCampaignRunning(): boolean {
+  return campaignLock || useAppStore.getState().campaign.running;
+}
+
+// Configurações anti-ban são pessoais por usuário — atualiza o estado local
+// (feedback imediato na UI) e persiste no motor em paralelo, pra sobreviver a
+// trocas de dispositivo/login (localStorage sozinho não faz isso).
+export function updateAntiBanSettings(patch: Partial<AntiBanSettings>) {
+  useAppStore.getState().updateSettings(patch);
+  api.updateSettingsRemote(patch).catch(() => {});
+}
+
+export function startCampaign(params: CampaignParams, connectionId = "default") {
+  if (isCampaignRunning()) {
+    useAppStore.getState().pushLog({
+      level: "warn",
+      message: "Já existe uma campanha em andamento — novo disparo ignorado até a atual terminar.",
+    });
+    return;
+  }
+  // Trava local imediatamente (síncrono, antes de qualquer coisa assíncrona)
+  // para que nenhuma segunda chamada concorrente NESTE MESMO navegador passe
+  // pela checagem acima (ex: duplo clique). Isso sozinho NÃO impede dois
+  // atendentes diferentes, cada um no seu computador — por isso a reserva no
+  // servidor logo abaixo (api.lockCampaign) é o que realmente resolve isso:
+  // ela é compartilhada entre todo mundo, por número (connectionId).
+  campaignLock = true;
+
   const store = useAppStore.getState();
   const contacts = store.contacts.filter((c) => params.contactIds.includes(c.id));
   const tpl = store.templates.find((t) => t.id === params.templateId);
-  if (!tpl || contacts.length === 0) return;
-
-  // Auto-classificação CRM: todos os contatos disparados vão para "Novo".
-  for (const c of contacts) {
-    if (c.status !== "novo") store.moveContactStage(c.id, "novo");
+  if (!tpl || contacts.length === 0) {
+    campaignLock = false;
+    return;
   }
 
-  // Disparo SEMPRE sequencial pelo frontend via HTTP /send.
-  // (Não delegamos mais para o WS do backend, que poderia processar em paralelo.)
-  // Garante: 1 cliente por vez → todas as partes do template → delay anti-ban → próximo cliente.
-  store.resetCampaign();
-  store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
-  store.pushLog({
-    level: "info",
-    message: `Campanha iniciada (sequencial, 1 cliente por vez): ${contacts.length} contatos. Intervalo entre clientes: ${store.settings.minDelay}–${store.settings.maxDelay}s.`,
+  api.lockCampaign(connectionId).then(() => {
+    // Auto-classificação CRM: todos os contatos disparados vão para "Novo".
+    for (const c of contacts) {
+      if (c.status !== "novo") store.moveContactStage(c.id, "novo");
+    }
+
+    // Disparo SEMPRE sequencial pelo frontend via HTTP /send.
+    // (Não delegamos mais para o WS do backend, que poderia processar em paralelo.)
+    // Garante: 1 cliente por vez → todas as partes do template → delay anti-ban → próximo cliente.
+    store.resetCampaign();
+    store.setCampaign({ running: true, total: contacts.length, startedAt: Date.now() });
+    store.pushLog({
+      level: "info",
+      message: `Campanha iniciada (sequencial, 1 cliente por vez): ${contacts.length} contatos. Intervalo entre clientes: ${store.settings.minDelay}–${store.settings.maxDelay}s.`,
+    });
+    runHttpCampaign(contacts, tpl, store.settings, connectionId).finally(() => {
+      campaignLock = false;
+      api.unlockCampaign(connectionId).catch(() => {});
+    });
+  }).catch((err) => {
+    campaignLock = false;
+    const reason = err instanceof Error ? err.message : "Já existe um disparo em andamento para este número (outro atendente).";
+    store.pushLog({ level: "warn", message: `Disparo não iniciado: ${reason}` });
+    try { toast.error(reason); } catch { /* ignore */ }
   });
-  runHttpCampaign(contacts, tpl, store.settings);
   return;
 }
 
@@ -669,6 +1001,7 @@ async function runHttpCampaign(
     media?: { dataUrl: string; filename: string; mimetype: string } | null;
   },
   settings: { minDelay: number; maxDelay: number; longPauseEvery: number; longPauseSeconds: number },
+  connectionId: string,
 ) {
   let sent = 0, failed = 0;
   const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
@@ -722,9 +1055,9 @@ async function runHttpCampaign(
 
       try {
         if (hasMedia) {
-          await api.sendMediaToNumber(c.telefone, part.media!, hasText ? text : undefined);
+          await api.sendMediaToNumber(c.telefone, part.media!, hasText ? text : undefined, connectionId);
         } else {
-          await api.sendToNumber(c.telefone, text);
+          await api.sendToNumber(c.telefone, text, connectionId);
         }
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
@@ -787,6 +1120,10 @@ export function stopCampaign() {
   engineClient.send({ type: "stop-campaign" });
   stopMockCampaign();
   useAppStore.getState().setCampaign({ running: false, paused: false });
+  // Não libera campaignLock aqui: o loop em runHttpCampaign ainda está rodando
+  // (aguardando um sleep/parte em andamento) e só libera a trava no seu próprio
+  // .finally() ao perceber `running=false` e encerrar de fato — evita que um novo
+  // clique em "Iniciar" crie uma segunda campanha sobreposta à que está finalizando.
 }
 
 export function renderTemplate(body: string, nome: string): string {
@@ -815,7 +1152,7 @@ async function syncSystemStatus() {
  * - Tenta WS quando o Sistema responde.
  */
 async function pingHealth() {
-  const url = `${ENGINE_HTTP.replace(/^https:/, "http:")}/health`;
+  const url = `${ENGINE_HTTP}/health`;
   try {
     const ctrl = new AbortController();
     const t = window.setTimeout(() => ctrl.abort(), 3000);
@@ -857,6 +1194,9 @@ export function useEngineBootstrap() {
     // Polling automático e silencioso a cada 5s — zero-config e estável.
     pingHealth();
     healthTimer = window.setInterval(pingHealth, 5000);
+    // Carrega o estado inicial do sino — atualizações depois disso chegam ao
+    // vivo pelo WS (case "notification:new" acima), sem precisar de polling.
+    useNotificationsStore.getState().load();
     return () => {
       if (healthTimer) { window.clearInterval(healthTimer); healthTimer = null; }
     };

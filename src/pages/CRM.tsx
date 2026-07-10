@@ -1,10 +1,10 @@
 import { AppHeader } from "@/components/AppHeader";
-import { useAppStore, type Contact, type CustomField, type PipelineStage } from "@/store/appStore";
-import { useMemo, useState } from "react";
-import { Briefcase, Search, Pencil, X, Plus, History, Settings2 } from "lucide-react";
+import { useAppStore, type Contact, type PipelineStage } from "@/store/appStore";
+import { useEffect, useMemo, useState } from "react";
+import { Briefcase, Search, X, Plus, History, Settings2, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { formatPhoneDisplay, normalizePhone } from "@/lib/phone";
+import { formatPhoneDisplay } from "@/lib/phone";
 import { toast } from "@/hooks/use-toast";
 import {
   DndContext, DragOverlay, PointerSensor, useSensor, useSensors,
@@ -12,22 +12,52 @@ import {
 } from "@dnd-kit/core";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/engine";
+import { ContactFormDialog } from "@/components/ContactFormDialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { funis as funisApi, type Funil } from "@/lib/funis";
+
+const STAGE_COLORS = [
+  "213 90% 55%", "265 85% 65%", "330 85% 60%", "160 70% 45%",
+  "35 90% 55%", "0 75% 60%", "190 80% 50%", "45 95% 55%",
+];
+interface BoardStage { key: string; label: string; color: string; terminal?: boolean }
 
 export default function CRM() {
-  const contacts        = useAppStore((s) => s.contacts);
-  const stages          = useAppStore((s) => s.pipelineStages);
-  const customFields    = useAppStore((s) => s.customFields);
-  const moveContact     = useAppStore((s) => s.moveContactStage);
-  const updateContact   = useAppStore((s) => s.updateContact);
-  const addContacts     = useAppStore((s) => s.addContacts);
-  const history         = useAppStore((s) => s.pipelineHistory);
+  const contacts    = useAppStore((s) => s.contacts);
+  const stages      = useAppStore((s) => s.pipelineStages);
+  const moveContact = useAppStore((s) => s.moveContactStage);
+  const history     = useAppStore((s) => s.pipelineHistory);
 
   const [search, setSearch]   = useState("");
   const [editing, setEditing] = useState<Contact | null>(null);
   const [creating, setCreating] = useState(false);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [overStage, setOverStage] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+
+  // Aba ativa: "__principal__" é o Funil do CRM de sempre (por usuário,
+  // intocado); qualquer outro valor é o id de um funil customizado
+  // (compartilhado por toda a equipe — Parte B).
+  const [tab, setTab] = useState("__principal__");
+  const [customFunis, setCustomFunis] = useState<Funil[]>([]);
+  const [funilContatos, setFunilContatos] = useState<Record<string, Record<string, string>>>({});
+  const [showCreateFunil, setShowCreateFunil] = useState(false);
+  const [managingFunil, setManagingFunil] = useState<Funil | null>(null);
+
+  const loadFunis = async () => {
+    try {
+      const list = await funisApi.list();
+      setCustomFunis(list);
+      const entries = await Promise.all(list.map(async (f) => {
+        const rows = await funisApi.contatos(f.id);
+        const map: Record<string, string> = {};
+        for (const r of rows) map[r.contatoId] = r.etapaId;
+        return [f.id, map] as const;
+      }));
+      setFunilContatos(Object.fromEntries(entries));
+    } catch (e) {
+      toast({ title: "Erro ao carregar funis", description: (e as Error).message, variant: "destructive" });
+    }
+  };
+  useEffect(() => { loadFunis(); }, []);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -38,42 +68,71 @@ export default function CRM() {
     (c.empresa || "").toLowerCase().includes(search.toLowerCase())
   ), [contacts, search]);
 
-  const byStage = useMemo(() => {
+  // ── Funil do CRM (padrão, comportamento intocado) ──
+  const principalFiltered = useMemo(() => filtered.filter((c) =>
+    // CRM é o funil de atendimento ativo — só mostra quem já tem uma etapa de
+    // verdade (contact_stage real), nunca um contato recém-importado que
+    // ninguém ainda tocou (ver hasCrmStage em GET /contacts + skipStage).
+    c.hasCrmStage
+  ), [filtered]);
+  const principalByStage = useMemo(() => {
     const map: Record<string, Contact[]> = {};
     for (const s of stages) map[s.key] = [];
     const fallback = stages[0]?.key ?? "novo";
-    for (const c of filtered) {
+    for (const c of principalFiltered) {
       const k = c.status && map[c.status] !== undefined ? c.status : fallback;
       map[k].push(c);
     }
     return map;
-  }, [filtered, stages]);
+  }, [principalFiltered, stages]);
 
-  const handleDragStart = (e: DragStartEvent) => {
-    setActiveId(String(e.active.id));
-  };
-
-  const handleDragOver = (e: { over: { id: string | number } | null }) => {
-    setOverStage(e.over ? String(e.over.id) : null);
-  };
-
-  const handleDragEnd = (e: DragEndEvent) => {
-    setActiveId(null); setOverStage(null);
-    if (!e.over) return;
-    const contactId = String(e.active.id);
-    const toKey = String(e.over.id);
+  const handleMovePrincipal = (contactId: string, toKey: string) => {
     const contact = contacts.find((c) => c.id === contactId);
     if (!contact || contact.status === toKey) return;
     const stage = stages.find((s) => s.key === toKey);
     moveContact(contactId, toKey);
     api.moveContactStage(contactId, toKey).catch(() => {});
-    toast({
-      title: `Movido para ${stage?.label ?? toKey}`,
-      description: contact.nome,
-    });
+    toast({ title: `Movido para ${stage?.label ?? toKey}`, description: contact.nome });
   };
 
-  const activeContact = activeId ? contacts.find((c) => c.id === activeId) : null;
+  // ── Funil customizado ativo ──
+  const activeFunil = tab === "__principal__" ? null : customFunis.find((f) => f.id === tab) ?? null;
+
+  const customBoardStages: BoardStage[] = useMemo(() => {
+    if (!activeFunil) return [];
+    return activeFunil.etapas
+      .slice()
+      .sort((a, b) => a.ordem - b.ordem)
+      .map((e, i) => ({ key: e.id, label: e.nome, color: e.cor || STAGE_COLORS[i % STAGE_COLORS.length] }));
+  }, [activeFunil]);
+
+  const customByStage = useMemo(() => {
+    const map: Record<string, Contact[]> = {};
+    if (!activeFunil) return map;
+    for (const s of customBoardStages) map[s.key] = [];
+    const assigned = funilContatos[activeFunil.id] || {};
+    for (const c of filtered) {
+      // Atribuição a funil customizado é SEMPRE manual (Parte T8) — um
+      // contato sem etapa aqui simplesmente não aparece neste board (nunca
+      // um bucket "Sem etapa" reunindo todo mundo que nunca foi atribuído;
+      // isso era um bug visual, não uma atribuição real no backend).
+      const etapaId = assigned[c.id];
+      if (etapaId && map[etapaId] !== undefined) map[etapaId].push(c);
+    }
+    return map;
+  }, [activeFunil, customBoardStages, filtered, funilContatos]);
+
+  const handleMoveCustom = async (contactId: string, toKey: string) => {
+    if (!activeFunil) return;
+    const funilId = activeFunil.id;
+    setFunilContatos((prev) => ({ ...prev, [funilId]: { ...(prev[funilId] || {}), [contactId]: toKey } }));
+    try {
+      await funisApi.setContatoEtapa(funilId, contactId, toKey);
+    } catch (e) {
+      toast({ title: "Erro ao mover contato", description: (e as Error).message, variant: "destructive" });
+      loadFunis();
+    }
+  };
 
   return (
     <>
@@ -102,68 +161,51 @@ export default function CRM() {
         </Button>
       </div>
 
-      <DndContext
-        sensors={sensors}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragEnd={handleDragEnd}
-        onDragCancel={() => { setActiveId(null); setOverStage(null); }}
-      >
-        <div className="overflow-x-auto scrollbar-thin pb-3">
-          <div className="flex gap-3 min-w-max">
-            {stages.map((stage) => (
-              <StageColumn
-                key={stage.key}
-                stage={stage}
-                contacts={byStage[stage.key]}
-                isOver={overStage === stage.key}
-                onClickContact={(c) => setEditing(c)}
-              />
-            ))}
-          </div>
-        </div>
+      <div className="flex items-center gap-1 mb-3 overflow-x-auto scrollbar-thin">
+        <button onClick={() => setTab("__principal__")} className={tabClass(tab === "__principal__")}>
+          Funil do CRM
+        </button>
+        {customFunis.map((f) => (
+          <button key={f.id} onClick={() => setTab(f.id)} className={tabClass(tab === f.id)}>
+            {f.nome}
+          </button>
+        ))}
+        <Button size="icon" variant="ghost" className="shrink-0" title="Criar novo funil" onClick={() => setShowCreateFunil(true)}>
+          <Plus className="w-4 h-4" />
+        </Button>
+        {activeFunil && (
+          <Button size="icon" variant="ghost" className="shrink-0" title="Gerenciar funil" onClick={() => setManagingFunil(activeFunil)}>
+            <Settings2 className="w-4 h-4" />
+          </Button>
+        )}
+      </div>
 
-        <DragOverlay>
-          {activeContact ? <ContactCard contact={activeContact} dragging /> : null}
-        </DragOverlay>
-      </DndContext>
+      {tab === "__principal__" ? (
+        <Board
+          sensors={sensors}
+          stages={stages}
+          byStage={principalByStage}
+          onMove={handleMovePrincipal}
+          onClickContact={(c) => setEditing(c)}
+        />
+      ) : activeFunil ? (
+        <Board
+          sensors={sensors}
+          stages={customBoardStages}
+          byStage={customByStage}
+          onMove={handleMoveCustom}
+          onClickContact={(c) => setEditing(c)}
+        />
+      ) : (
+        <div className="text-center text-sm text-muted-foreground py-12">Carregando…</div>
+      )}
 
       {editing && (
-        <ContactDialog
-          contact={editing}
-          stages={stages}
-          customFields={customFields}
-          onClose={() => setEditing(null)}
-          onSave={(p) => { updateContact(editing.id, p); setEditing(null); }}
-        />
+        <ContactFormDialog mode="edit" contact={editing} onClose={() => setEditing(null)} />
       )}
 
       {creating && (
-        <ContactDialog
-          contact={null}
-          stages={stages}
-          customFields={customFields}
-          onClose={() => setCreating(false)}
-          onSave={(p) => {
-            const tel = normalizePhone(String(p.telefone || ""));
-            if (!tel) {
-              toast({ title: "Telefone inválido", description: "Informe um número válido.", variant: "destructive" });
-              return;
-            }
-            const { telefone: _drop, ...rest } = p;
-            void _drop;
-            addContacts([{
-              id: crypto.randomUUID(),
-              nome: String(p.nome || "Sem nome"),
-              tags: [],
-              createdAt: Date.now(),
-              ...rest,
-              telefone: tel,
-            } as Contact]);
-            setCreating(false);
-            toast({ title: "Contato criado" });
-          }}
-        />
+        <ContactFormDialog mode="create" onClose={() => setCreating(false)} />
       )}
 
       {showHistory && (
@@ -174,7 +216,82 @@ export default function CRM() {
           onClose={() => setShowHistory(false)}
         />
       )}
+
+      {showCreateFunil && (
+        <CreateFunilDialog
+          onClose={() => setShowCreateFunil(false)}
+          onCreated={(f) => { setCustomFunis((prev) => [...prev, f]); setFunilContatos((prev) => ({ ...prev, [f.id]: {} })); setTab(f.id); setShowCreateFunil(false); }}
+        />
+      )}
+
+      {managingFunil && (
+        <ManageFunilDialog
+          funil={managingFunil}
+          onClose={() => setManagingFunil(null)}
+          onChanged={loadFunis}
+          onDeleted={() => { setTab("__principal__"); setManagingFunil(null); loadFunis(); }}
+        />
+      )}
     </>
+  );
+}
+
+function tabClass(active: boolean) {
+  return `shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+    active ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/40"
+  }`;
+}
+
+// ─────────────────────── Board genérico (dnd-kit) ───────────────────────
+function Board({
+  sensors, stages, byStage, onMove, onClickContact,
+}: {
+  sensors: ReturnType<typeof useSensors>;
+  stages: BoardStage[];
+  byStage: Record<string, Contact[]>;
+  onMove: (contactId: string, toKey: string) => void;
+  onClickContact: (c: Contact) => void;
+}) {
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [overStage, setOverStage] = useState<string | null>(null);
+
+  const allContacts = useMemo(() => Object.values(byStage).flat(), [byStage]);
+  const activeContact = activeId ? allContacts.find((c) => c.id === activeId) : null;
+
+  const handleDragStart = (e: DragStartEvent) => setActiveId(String(e.active.id));
+  const handleDragOver = (e: { over: { id: string | number } | null }) => setOverStage(e.over ? String(e.over.id) : null);
+  const handleDragEnd = (e: DragEndEvent) => {
+    setActiveId(null); setOverStage(null);
+    if (!e.over) return;
+    onMove(String(e.active.id), String(e.over.id));
+  };
+
+  return (
+    <DndContext
+      sensors={sensors}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => { setActiveId(null); setOverStage(null); }}
+    >
+      <div className="overflow-x-auto scrollbar-thin pb-3">
+        <div className="flex gap-3 min-w-max">
+          {stages.map((stage) => (
+            <StageColumn
+              key={stage.key}
+              stage={stage}
+              contacts={byStage[stage.key] || []}
+              isOver={overStage === stage.key}
+              onClickContact={onClickContact}
+            />
+          ))}
+        </div>
+      </div>
+
+      <DragOverlay>
+        {activeContact ? <ContactCard contact={activeContact} dragging /> : null}
+      </DragOverlay>
+    </DndContext>
   );
 }
 
@@ -182,7 +299,7 @@ export default function CRM() {
 function StageColumn({
   stage, contacts, isOver, onClickContact,
 }: {
-  stage: PipelineStage;
+  stage: BoardStage;
   contacts: Contact[];
   isOver: boolean;
   onClickContact: (c: Contact) => void;
@@ -215,7 +332,7 @@ function StageColumn({
         }`}
       >
         {contacts.length === 0 && (
-          <div className="text-center text-xs text-muted-foreground py-6 border border-dashed border-border/30 rounded-lg">
+          <div className="text-center text-xs text-muted-foreground py-6 border border-dashed border-border rounded-lg">
             {isOver ? "Solte aqui" : "Vazio"}
           </div>
         )}
@@ -280,200 +397,6 @@ function ContactCard({ contact, dragging }: { contact: Contact; dragging?: boole
   );
 }
 
-// ─────────────────────── Dialog ───────────────────────
-function ContactDialog({
-  contact, stages, customFields, onClose, onSave,
-}: {
-  contact: Contact | null;
-  stages: PipelineStage[];
-  customFields: CustomField[];
-  onClose: () => void;
-  onSave: (p: Partial<Contact>) => void;
-}) {
-  const [data, setData] = useState({
-    nome: contact?.nome ?? "",
-    telefone: contact?.telefone ?? "",
-    email: contact?.email ?? "",
-    documento: contact?.documento ?? "",
-    empresa: contact?.empresa ?? "",
-    origem: contact?.origem ?? "",
-    status: contact?.status ?? stages[0]?.key ?? "novo",
-    observacoes: contact?.observacoes ?? "",
-    tags: contact?.tags.join(", ") ?? "",
-  });
-  const [custom, setCustom] = useState<Record<string, string | number | boolean>>(
-    contact?.customData ?? {},
-  );
-
-  const setCustomVal = (key: string, v: string | number | boolean) =>
-    setCustom((prev) => ({ ...prev, [key]: v }));
-
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-background/80 backdrop-blur flex items-center justify-center p-4 animate-fade-in"
-      onClick={onClose}
-    >
-      <div
-        className="glass-card max-w-2xl w-full p-6 animate-scale-in max-h-[90vh] overflow-y-auto scrollbar-thin"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="font-semibold">{contact ? "Ficha do cliente" : "Novo contato"}</h3>
-            <p className="text-xs text-muted-foreground">
-              {contact ? formatPhoneDisplay(contact.telefone) : "Preencha os dados abaixo"}
-            </p>
-          </div>
-          <Button size="icon" variant="ghost" onClick={onClose}>
-            <X className="w-4 h-4" />
-          </Button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Nome">
-            <Input value={data.nome} onChange={(e) => setData({ ...data, nome: e.target.value })} />
-          </Field>
-          <Field label="Telefone">
-            <Input
-              value={data.telefone}
-              onChange={(e) => setData({ ...data, telefone: e.target.value })}
-              disabled={!!contact}
-              placeholder="55 11 99999-9999"
-            />
-          </Field>
-          <Field label="E-mail">
-            <Input value={data.email} onChange={(e) => setData({ ...data, email: e.target.value })} />
-          </Field>
-          <Field label="Empresa">
-            <Input value={data.empresa} onChange={(e) => setData({ ...data, empresa: e.target.value })} />
-          </Field>
-          <Field label="CPF/CNPJ">
-            <Input value={data.documento} onChange={(e) => setData({ ...data, documento: e.target.value })} />
-          </Field>
-          <Field label="Origem">
-            <Input
-              placeholder="Instagram, indicação, site…"
-              value={data.origem}
-              onChange={(e) => setData({ ...data, origem: e.target.value })}
-            />
-          </Field>
-          <Field label="Etapa">
-            <select
-              value={data.status}
-              onChange={(e) => setData({ ...data, status: e.target.value })}
-              className="w-full bg-input rounded px-3 py-2 text-sm border border-border/40"
-            >
-              {stages.map((s) => (
-                <option key={s.key} value={s.key}>{s.label}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Tags (vírgula)">
-            <Input value={data.tags} onChange={(e) => setData({ ...data, tags: e.target.value })} />
-          </Field>
-          <Field label="Observações" full>
-            <textarea
-              rows={3}
-              value={data.observacoes}
-              onChange={(e) => setData({ ...data, observacoes: e.target.value })}
-              className="w-full bg-input rounded px-3 py-2 text-sm border border-border/40"
-            />
-          </Field>
-
-          {customFields.length > 0 && (
-            <div className="col-span-2 mt-2">
-              <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
-                Campos personalizados
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                {customFields.map((f) => (
-                  <Field key={f.id} label={f.label} full={f.type === "checkbox"}>
-                    <CustomFieldInput
-                      field={f}
-                      value={custom[f.key]}
-                      onChange={(v) => setCustomVal(f.key, v)}
-                    />
-                  </Field>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="flex gap-2 mt-5 justify-end">
-          <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-          <Button
-            className="btn-glow"
-            onClick={() => onSave({
-              ...data,
-              tags: data.tags.split(",").map((t) => t.trim()).filter(Boolean),
-              customData: custom,
-            })}
-          >
-            <Pencil className="w-4 h-4 mr-1" /> Salvar
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CustomFieldInput({
-  field, value, onChange,
-}: {
-  field: CustomField;
-  value: string | number | boolean | undefined;
-  onChange: (v: string | number | boolean) => void;
-}) {
-  if (field.type === "checkbox") {
-    return (
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={!!value}
-          onChange={(e) => onChange(e.target.checked)}
-          className="accent-primary"
-        />
-        <span className="text-muted-foreground">Sim / Não</span>
-      </label>
-    );
-  }
-  if (field.type === "select") {
-    return (
-      <select
-        value={String(value ?? "")}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-input rounded px-3 py-2 text-sm border border-border/40"
-      >
-        <option value="">—</option>
-        {(field.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
-    );
-  }
-  if (field.type === "number") {
-    return (
-      <Input
-        type="number"
-        value={String(value ?? "")}
-        onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
-      />
-    );
-  }
-  if (field.type === "date") {
-    return <Input type="date" value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} />;
-  }
-  return <Input value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} />;
-}
-
-function Field({ label, full, children }: { label: string; full?: boolean; children: React.ReactNode }) {
-  return (
-    <div className={full ? "col-span-2" : ""}>
-      <label className="text-xs uppercase tracking-wider text-muted-foreground">{label}</label>
-      <div className="mt-1">{children}</div>
-    </div>
-  );
-}
-
 // ─────────────────────── Histórico ───────────────────────
 function HistoryDialog({
   history, contacts, stages, onClose,
@@ -512,7 +435,7 @@ function HistoryDialog({
         ) : (
           <ul className="space-y-2">
             {history.slice(0, 100).map((e) => (
-              <li key={e.id} className="text-sm flex items-center justify-between border-b border-border/30 pb-2">
+              <li key={e.id} className="text-sm flex items-center justify-between border-b border-border pb-2">
                 <div>
                   <div className="font-medium">{contactName(e.contactId)}</div>
                   <div className="text-xs text-muted-foreground">
@@ -527,6 +450,230 @@ function HistoryDialog({
           </ul>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────── Criar funil ───────────────────────
+function CreateFunilDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (f: Funil) => void }) {
+  const [nome, setNome] = useState("");
+  const [etapas, setEtapas] = useState<{ nome: string; cor: string }[]>([
+    { nome: "Novo", cor: STAGE_COLORS[0] },
+    { nome: "Em andamento", cor: STAGE_COLORS[1] },
+    { nome: "Concluído", cor: STAGE_COLORS[3] },
+  ]);
+  const [saving, setSaving] = useState(false);
+
+  const addEtapa = () => setEtapas((prev) => [...prev, { nome: "", cor: STAGE_COLORS[prev.length % STAGE_COLORS.length] }]);
+  const removeEtapa = (i: number) => setEtapas((prev) => prev.filter((_, idx) => idx !== i));
+  const updateEtapa = (i: number, patch: Partial<{ nome: string; cor: string }>) =>
+    setEtapas((prev) => prev.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
+
+  const canSave = nome.trim() && etapas.some((e) => e.nome.trim());
+  const save = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    try {
+      const f = await funisApi.create(
+        nome.trim(),
+        etapas.filter((e) => e.nome.trim()).map((e, i) => ({ nome: e.nome.trim(), cor: e.cor, ordem: i })),
+      );
+      toast({ title: "Funil criado", description: f.nome });
+      onCreated(f);
+    } catch (e) {
+      toast({ title: "Erro ao criar funil", description: (e as Error).message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+      <div className="glass-card max-w-md w-full p-6 animate-scale-in max-h-[85vh] overflow-y-auto scrollbar-thin" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold">Novo funil compartilhado</h3>
+          <Button size="icon" variant="ghost" onClick={onClose}><X className="w-4 h-4" /></Button>
+        </div>
+        <p className="text-xs text-muted-foreground mb-3">
+          Visível para toda a equipe — diferente do Funil do CRM padrão, que continua individual.
+        </p>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground">Nome do funil</label>
+            <Input className="bg-input/60 mt-1" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex: Recuperação de clientes" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Etapas</label>
+            <div className="space-y-2 mt-1">
+              {etapas.map((e, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full shrink-0" style={{ background: `hsl(${e.cor})` }} />
+                  <Input
+                    className="bg-input/60 h-8 text-sm"
+                    value={e.nome}
+                    onChange={(ev) => updateEtapa(i, { nome: ev.target.value })}
+                    placeholder={`Etapa ${i + 1}`}
+                  />
+                  <button onClick={() => removeEtapa(i)} className="text-muted-foreground hover:text-destructive shrink-0" title="Remover etapa">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <Button variant="ghost" size="sm" className="mt-2" onClick={addEtapa}>
+              <Plus className="w-3.5 h-3.5 mr-1" /> Adicionar etapa
+            </Button>
+          </div>
+        </div>
+        <div className="flex gap-2 mt-6 justify-end">
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancelar</Button>
+          <Button className="btn-glow" onClick={save} disabled={!canSave || saving}>
+            {saving ? "Criando…" : "Criar funil"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────── Gerenciar funil ───────────────────────
+function ManageFunilDialog({
+  funil, onClose, onChanged, onDeleted,
+}: {
+  funil: Funil;
+  onClose: () => void;
+  onChanged: () => void;
+  onDeleted: () => void;
+}) {
+  const [nome, setNome] = useState(funil.nome);
+  const [etapas, setEtapas] = useState(funil.etapas.slice().sort((a, b) => a.ordem - b.ordem));
+  const [newEtapaNome, setNewEtapaNome] = useState("");
+  const [confirmDeleteFunil, setConfirmDeleteFunil] = useState(false);
+  const [confirmDeleteEtapa, setConfirmDeleteEtapa] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const saveNome = async () => {
+    if (!nome.trim() || nome.trim() === funil.nome) return;
+    try {
+      await funisApi.rename(funil.id, nome.trim());
+      onChanged();
+    } catch (e) {
+      toast({ title: "Erro ao renomear funil", description: (e as Error).message, variant: "destructive" });
+    }
+  };
+
+  const renameEtapa = async (etapaId: string, novoNome: string) => {
+    try {
+      await funisApi.renameEtapa(funil.id, etapaId, novoNome);
+      onChanged();
+    } catch (e) {
+      toast({ title: "Erro ao renomear etapa", description: (e as Error).message, variant: "destructive" });
+    }
+  };
+
+  const addEtapa = async () => {
+    if (!newEtapaNome.trim()) return;
+    try {
+      const created = await funisApi.addEtapa(funil.id, { nome: newEtapaNome.trim(), cor: STAGE_COLORS[etapas.length % STAGE_COLORS.length] });
+      setEtapas((prev) => [...prev, created]);
+      setNewEtapaNome("");
+      onChanged();
+    } catch (e) {
+      toast({ title: "Erro ao adicionar etapa", description: (e as Error).message, variant: "destructive" });
+    }
+  };
+
+  const removeEtapa = async (etapaId: string) => {
+    setBusy(true);
+    try {
+      await funisApi.removeEtapa(funil.id, etapaId);
+      setEtapas((prev) => prev.filter((e) => e.id !== etapaId));
+      onChanged();
+    } catch (e) {
+      toast({ title: "Erro ao remover etapa", description: (e as Error).message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+      setConfirmDeleteEtapa(null);
+    }
+  };
+
+  const removeFunil = async () => {
+    setBusy(true);
+    try {
+      await funisApi.remove(funil.id);
+      toast({ title: "Funil excluído" });
+      onDeleted();
+    } catch (e) {
+      toast({ title: "Erro ao excluir funil", description: (e as Error).message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+      setConfirmDeleteFunil(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+      <div className="glass-card max-w-md w-full p-6 animate-scale-in max-h-[85vh] overflow-y-auto scrollbar-thin" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold">Gerenciar funil</h3>
+          <Button size="icon" variant="ghost" onClick={onClose}><X className="w-4 h-4" /></Button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground">Nome do funil</label>
+            <Input className="bg-input/60 mt-1" value={nome} onChange={(e) => setNome(e.target.value)} onBlur={saveNome} />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Etapas</label>
+            <div className="space-y-2 mt-1">
+              {etapas.map((e) => (
+                <div key={e.id} className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full shrink-0" style={{ background: `hsl(${e.cor || "213 90% 55%"})` }} />
+                  <Input
+                    className="bg-input/60 h-8 text-sm"
+                    defaultValue={e.nome}
+                    onBlur={(ev) => { if (ev.target.value.trim() && ev.target.value.trim() !== e.nome) renameEtapa(e.id, ev.target.value.trim()); }}
+                  />
+                  <button onClick={() => setConfirmDeleteEtapa(e.id)} className="text-muted-foreground hover:text-destructive shrink-0" title="Remover etapa">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              <Input className="bg-input/60 h-8 text-sm" value={newEtapaNome} onChange={(e) => setNewEtapaNome(e.target.value)} placeholder="Nova etapa" />
+              <Button size="sm" variant="ghost" onClick={addEtapa} disabled={!newEtapaNome.trim()}>
+                <Plus className="w-3.5 h-3.5 mr-1" /> Adicionar
+              </Button>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center justify-between mt-6">
+          <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setConfirmDeleteFunil(true)}>
+            <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Excluir funil
+          </Button>
+          <Button variant="ghost" onClick={onClose}>Fechar</Button>
+        </div>
+      </div>
+
+      {confirmDeleteFunil && (
+        <ConfirmDialog
+          title={`Excluir o funil "${funil.nome}"?`}
+          description="Todos os contatos posicionados neste funil perdem essa etapa. Não afeta o Funil do CRM padrão nem os outros funis."
+          confirmLabel={busy ? "Excluindo…" : "Excluir funil"}
+          onCancel={() => setConfirmDeleteFunil(false)}
+          onConfirm={removeFunil}
+        />
+      )}
+      {confirmDeleteEtapa && (
+        <ConfirmDialog
+          title="Excluir esta etapa?"
+          description="Contatos nesta etapa migram automaticamente para a primeira etapa restante do funil."
+          confirmLabel={busy ? "Excluindo…" : "Excluir etapa"}
+          onCancel={() => setConfirmDeleteEtapa(null)}
+          onConfirm={() => removeEtapa(confirmDeleteEtapa)}
+        />
+      )}
     </div>
   );
 }

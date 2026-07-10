@@ -2,9 +2,9 @@ import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppStore } from "@/store/appStore";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Play, Pause, Square, Send, Users, MessageSquareText } from "lucide-react";
-import { startCampaign, pauseCampaign, resumeCampaign, stopCampaign } from "@/lib/engine";
+import { startCampaign, pauseCampaign, resumeCampaign, stopCampaign, isCampaignRunning, api } from "@/lib/engine";
 import { toast } from "sonner";
 import { useLocation } from "react-router-dom";
 import Mensagens from "./Mensagens";
@@ -20,7 +20,13 @@ export default function Disparos() {
   const templates = useAppStore((s) => s.templates);
   const settings = useAppStore((s) => s.settings);
   const campaign = useAppStore((s) => s.campaign);
+  const connections = useAppStore((s) => s.connections);
+  const [connectionId, setConnectionId] = useState("default");
   // status removido — disparo é sempre tentado contra o Sistema local.
+
+  useEffect(() => {
+    api.listConnections().catch(() => {});
+  }, []);
 
   const tags = useMemo(() => {
     const set = new Set<string>();
@@ -31,6 +37,11 @@ export default function Disparos() {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [combineMode, setCombineMode] = useState<"or" | "and">("or");
   const [templateId, setTemplateId] = useState<string>(templates[0]?.id ?? "");
+  const [starting, setStarting] = useState(false);
+
+  useEffect(() => {
+    if (campaign.running) setStarting(false);
+  }, [campaign.running]);
 
   const targets = useMemo(() => contacts.filter((c) => {
     if (selectedTags.length === 0) return true;
@@ -42,11 +53,15 @@ export default function Disparos() {
   const progressPct = campaign.total ? Math.round(((campaign.sent + campaign.failed) / campaign.total) * 100) : 0;
   const toggleTag = (t: string) => setSelectedTags((curr) => curr.includes(t) ? curr.filter((x) => x !== t) : [...curr, t]);
 
-  const handleStart = () => {
-    if (!templateId) return toast.error("Selecione um template.");
-    if (targets.length === 0) return toast.error("Nenhum contato selecionado.");
-    // Sem trava: o disparo é sempre tentado contra http://localhost:8787/send.
-    startCampaign({ contactIds: targets.map((t) => t.id), templateId });
+  const handleStart = (e: MouseEvent<HTMLButtonElement>) => {
+    // Desabilita o botão no próprio clique (síncrono) — não espera o
+    // round-trip do estado da store para evitar clique duplo/disparo duplicado.
+    e.currentTarget.disabled = true;
+    if (starting || campaign.running || isCampaignRunning()) return;
+    if (!templateId) { e.currentTarget.disabled = false; return toast.error("Selecione um template."); }
+    if (targets.length === 0) { e.currentTarget.disabled = false; return toast.error("Nenhum contato selecionado."); }
+    setStarting(true);
+    startCampaign({ contactIds: targets.map((t) => t.id), templateId }, connectionId);
   };
 
   return (
@@ -115,11 +130,28 @@ export default function Disparos() {
             </div>
           </div>
 
-          <div className="glass-card p-5 animate-fade-in">
+          <div className="glass-card glass-card-accent p-5 animate-fade-in">
             <div className="flex items-center gap-2 mb-4">
               <Send className="w-4 h-4 text-primary" />
               <h3 className="font-semibold">3. Execução</h3>
             </div>
+            {connections.length > 1 && (
+              <div className="mb-4">
+                <label className="text-xs uppercase tracking-wider text-muted-foreground block mb-1.5">Disparar pelo número</label>
+                <select
+                  value={connectionId}
+                  onChange={(e) => setConnectionId(e.target.value)}
+                  disabled={campaign.running || starting}
+                  className="bg-input rounded-lg px-3 py-2 text-sm border border-border w-full"
+                >
+                  {connections.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label} {c.status === "ready" ? `— ${c.me ?? "conectado"}` : "— desconectado"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="grid grid-cols-3 gap-3 text-center mb-4">
               <div><div className="text-xl font-semibold">{targets.length}</div><div className="text-xs text-muted-foreground">Alvos</div></div>
               <div><div className="text-xl font-semibold">{settings.minDelay}–{settings.maxDelay}s</div><div className="text-xs text-muted-foreground">Intervalo</div></div>
@@ -127,7 +159,7 @@ export default function Disparos() {
             </div>
             <div className="flex flex-wrap gap-2">
               {!campaign.running && (
-                <Button className="btn-glow" onClick={handleStart}>
+                <Button className="btn-glow" onClick={handleStart} disabled={starting}>
                   <Play className="w-4 h-4 mr-2" /> Iniciar disparo
                 </Button>
               )}
@@ -147,7 +179,7 @@ export default function Disparos() {
         </div>
 
         <div className="space-y-4">
-          <div className="glass-card p-5 animate-fade-in">
+          <div className="glass-card glass-card-accent p-5 animate-fade-in">
             <h3 className="font-semibold mb-3">Progresso</h3>
             <div className="text-3xl font-semibold tracking-tight">{campaign.sent + campaign.failed}<span className="text-muted-foreground text-base">/{campaign.total || "—"}</span></div>
             <div className="text-xs text-muted-foreground mb-3">{progressPct}% concluído</div>

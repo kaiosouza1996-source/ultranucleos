@@ -9,6 +9,9 @@ import {
   Tag,
   Upload,
   Settings,
+  MessageSquare,
+  Clock,
+  StickyNote,
 } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -22,9 +25,12 @@ const primary = [
 ];
 
 const more = [
+  { to: "/cadencia", label: "Cadência Follow Up", icon: Clock },
   { to: "/contatos", label: "Contatos", icon: Users },
   { to: "/tags", label: "Tags", icon: Tag },
   { to: "/importar", label: "Importar", icon: Upload },
+  { to: "/comunicacao", label: "Comunicação Interna", icon: MessageSquare },
+  { to: "/anotacoes", label: "Anotações", icon: StickyNote },
   { to: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 
@@ -116,7 +122,7 @@ export function MobileBottomNav() {
                             strokeWidth={active ? 2.4 : 2}
                           />
                           {showBadge && (
-                            <span className="absolute -top-1.5 -right-2 min-w-[16px] h-[16px] px-1 rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground flex items-center justify-center leading-none ring-2 ring-background">
+                            <span className="badge-pending absolute -top-1.5 -right-2 min-w-[16px] h-[16px] px-1 rounded-full text-[10px] font-semibold flex items-center justify-center leading-none ring-2 ring-background">
                               {pendentes > 9 ? "9+" : pendentes}
                             </span>
                           )}

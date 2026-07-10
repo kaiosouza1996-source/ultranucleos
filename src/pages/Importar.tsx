@@ -23,22 +23,25 @@ const FIELDS: { key: FieldKey | "ignorar"; label: string }[] = [
 export default function Importar() {
   const addContacts = useAppStore((s) => s.addContacts);
   const existing = useAppStore((s) => s.contacts);
+  const existingTags = useAppStore((s) => s.tags);
   const [parsed, setParsed] = useState<ParsedSheet | null>(null);
-  const [defaultTag, setDefaultTag] = useState<string>("");
-  const [fileTag, setFileTag] = useState<string>("");          // tag derivada do nome do arquivo
+  const [fileTag, setFileTag] = useState<string>("");          // tag derivada do nome do arquivo — busca no banco de tags; se não existir, nasce nova ao importar
   const [useFileTag, setUseFileTag] = useState(true);
   const [rows, setRows] = useState<NormalizedRow[]>([]);
   const [fileName, setFileName] = useState("");
-  // Etiqueta NATIVA do WhatsApp (aparece ao lado do nome do contato no celular)
-  const [applyWaLabel, setApplyWaLabel] = useState(true);
-  const [waLabel, setWaLabel] = useState<string>("");
-  const [waProgress, setWaProgress] = useState<{ done: number; total: number } | null>(null);
+  // Cliente da Assessoria vs Lead Frio — obrigatório escolher antes de "Importar
+  // e Salvar" (seção 3 da spec de Cadência de Follow-up): "Não" entra em
+  // cadência D1. O botão simples "Importar" não exige essa escolha — o
+  // contato entra como pendente de triagem (aba Contatos não salvos).
+  const [isClientBatch, setIsClientBatch] = useState<boolean | null>(null);
+  const [importing, setImporting] = useState(false);
 
-  const reprocess = (p: ParsedSheet, tag: string, fTag?: string) => {
+  const reprocess = (p: ParsedSheet, fTag?: string) => {
     const known = new Set(existing.map((c) => c.telefone));
-    const out = normalizeRows(p, { defaultTag: tag, knownPhones: known });
+    const out = normalizeRows(p, { knownPhones: known });
     if (fTag) {
-      // adiciona a tag-do-arquivo a TODAS as linhas (sem duplicar)
+      // adiciona a tag-do-arquivo a TODAS as linhas (sem duplicar) — única
+      // tag aplicada automaticamente, sem "geral" nem "tag padrão" por cima.
       for (const r of out) {
         if (!r.tags.includes(fTag)) r.tags = [...r.tags, fTag];
       }
@@ -68,19 +71,11 @@ export default function Importar() {
       setFileName(file.name);
       const auto = slugFromFileName(file.name);
       setFileTag(auto);
-      // Sugere uma label legível para o WhatsApp (Title Case do nome do arquivo)
-      const pretty = file.name
-        .replace(/\.[^.]+$/, "")
-        .replace(/[_\-]+/g, " ")
-        .replace(/\s+/g, " ")
-        .trim()
-        .replace(/\b\w/g, (c) => c.toUpperCase())
-        .slice(0, 40);
-      setWaLabel(pretty || auto);
+      setIsClientBatch(null);
       try {
         const p = await parseSpreadsheet(file);
         setParsed(p);
-        reprocess(p, defaultTag, useFileTag ? auto : undefined);
+        reprocess(p, useFileTag ? auto : undefined);
         toast.success(`${p.rows.length} linhas lidas — colunas detectadas. Tag de lista: #${auto}`);
       } catch (e) {
         toast.error("Falha ao ler planilha: " + (e as Error).message);
@@ -91,30 +86,34 @@ export default function Importar() {
   const setMapping = (header: string, field: FieldKey | "ignorar") => {
     if (!parsed) return;
     const next: ParsedSheet = { ...parsed, mapping: { byHeader: { ...parsed.mapping.byHeader, [header]: field } } };
-    setParsed(next); reprocess(next, defaultTag, useFileTag ? fileTag : undefined);
+    setParsed(next); reprocess(next, useFileTag ? fileTag : undefined);
   };
 
-  const onTagChange = (v: string) => {
-    setDefaultTag(v);
-    if (parsed) reprocess(parsed, v, useFileTag ? fileTag : undefined);
-  };
   const onFileTagChange = (v: string) => {
     setFileTag(v);
-    if (parsed) reprocess(parsed, defaultTag, useFileTag ? v : undefined);
+    if (parsed) reprocess(parsed, useFileTag ? v : undefined);
   };
   const onUseFileTagChange = (v: boolean) => {
     setUseFileTag(v);
-    if (parsed) reprocess(parsed, defaultTag, v ? fileTag : undefined);
+    if (parsed) reprocess(parsed, v ? fileTag : undefined);
   };
 
   const validRows = rows.filter((r) => r.status === "ok");
   const dupRows = rows.filter((r) => r.status === "duplicate");
   const invalidRows = rows.filter((r) => r.status === "invalid");
 
-  const handleImport = async (includeDuplicates = false) => {
-    const toImport = includeDuplicates ? [...validRows, ...dupRows] : validRows;
-    if (toImport.length === 0) { toast.error("Nenhuma linha para importar"); return; }
-    const newContacts: Contact[] = toImport.map((r) => ({
+  // Sempre só os NOVOS (nunca duplicados) — reimportar quem já existe não
+  // cria um segundo registro nem apaga classificação/cadência já feita
+  // manualmente (o backend agora faz UPDATE seletivo em vez de recriar a
+  // linha). Por isso não existe mais um botão "importar tudo".
+  const runImport = async (opts: { save: boolean }) => {
+    if (opts.save && isClientBatch === null) {
+      toast.error("Selecione se estes contatos já são clientes da Áurea antes de importar e salvar.");
+      return;
+    }
+    if (validRows.length === 0) { toast.error("Nenhuma linha nova para importar"); return; }
+    setImporting(true);
+    const newContacts: Contact[] = validRows.map((r) => ({
       id: crypto.randomUUID(),
       nome: r.nome,
       telefone: r.telefone,
@@ -124,41 +123,28 @@ export default function Importar() {
       tags: r.tags,
       status: "novo",
       createdAt: Date.now(),
+      // "Importar" simples nunca manda isClient — o contato nasce pendente de
+      // triagem (Contatos não salvos). "Importar e Salvar" já classifica.
+      ...(opts.save ? { isClient: isClientBatch as boolean } : {}),
     }));
     addContacts(newContacts);
-    try { await api.pushContacts(newContacts); } catch { /* engine offline = só local */ }
-    toast.success(`${newContacts.length} contatos importados`);
-
-    // Aplica a etiqueta NATIVA do WhatsApp (label do WhatsApp Business) em cada contato.
-    // Assim, ao abrir o WhatsApp fora do sistema, o cliente já aparece marcado com a lista de origem.
-    const labelToApply = waLabel.trim();
-    if (applyWaLabel && labelToApply) {
-      const numeros = newContacts.map((c) => c.telefone).filter(Boolean);
-      if (numeros.length > 0) {
-        setWaProgress({ done: 0, total: numeros.length });
-        const tId = toast.loading(`Aplicando etiqueta "${labelToApply}" no WhatsApp (0/${numeros.length})…`);
-        try {
-          const res = await api.applyWhatsappLabelBulk(numeros, labelToApply, {
-            delayMs: 500,
-            onProgress: (done, total) => {
-              setWaProgress({ done, total });
-              toast.loading(`Aplicando etiqueta "${labelToApply}" no WhatsApp (${done}/${total})…`, { id: tId });
-            },
-          });
-          if (res.fail === 0) {
-            toast.success(`Etiqueta "${labelToApply}" aplicada em ${res.ok} contatos no WhatsApp.`, { id: tId });
-          } else {
-            toast.warning(`Etiqueta aplicada em ${res.ok}/${numeros.length}. ${res.fail} falhas (veja o log).`, { id: tId });
-          }
-        } catch (e) {
-          toast.error(`Não foi possível aplicar a etiqueta: ${(e as Error).message}`, { id: tId });
-        } finally {
-          setWaProgress(null);
-        }
-      }
+    try {
+      // skipStage: true — importação nunca deve criar entrada no funil do
+      // CRM (contact_stage); isso é reservado pra atendimento de verdade
+      // (aba Contatos é o destino real de todo contato importado).
+      await api.pushContacts(newContacts.map((c) => ({ ...c, skipStage: true })));
+      toast.success(
+        opts.save
+          ? `${newContacts.length} contatos importados e salvos como ${isClientBatch ? "Clientes da Assessoria" : "Leads Frios"}.`
+          : `${newContacts.length} contatos importados — em Contatos não salvos, aguardando triagem.`,
+      );
+    } catch {
+      toast.warning(`${newContacts.length} contatos importados só localmente — Sistema local offline.`);
+    } finally {
+      setImporting(false);
     }
 
-    setRows([]); setParsed(null); setFileName(""); setFileTag("");
+    setRows([]); setParsed(null); setFileName(""); setFileTag(""); setIsClientBatch(null);
   };
 
   const downloadSample = () => {
@@ -219,14 +205,23 @@ export default function Importar() {
                 <Stat label="Válidos" value={validRows.length} accent="success" />
                 <Stat label="Duplicados" value={dupRows.length} accent="warn" />
                 <Stat label="Inválidos" value={invalidRows.length} accent="destructive" />
-                <Button className="btn-glow ml-auto" disabled={validRows.length === 0} onClick={() => handleImport(false)}>
+                <Button
+                  variant="outline"
+                  className="ml-auto"
+                  disabled={validRows.length === 0 || importing}
+                  onClick={() => runImport({ save: false })}
+                  title="Registra os contatos novos em Contatos não salvos, aguardando triagem"
+                >
                   Importar {validRows.length} novos
                 </Button>
-                {dupRows.length > 0 && (
-                  <Button variant="outline" onClick={() => handleImport(true)} title="Atualiza/recria contatos duplicados também">
-                    Importar tudo ({validRows.length + dupRows.length})
-                  </Button>
-                )}
+                <Button
+                  className="btn-glow"
+                  disabled={validRows.length === 0 || isClientBatch === null || importing}
+                  onClick={() => runImport({ save: true })}
+                  title="Importa e já classifica como Cliente da Assessoria ou Lead Frio"
+                >
+                  Importar e Salvar
+                </Button>
               </div>
               <div className="max-h-[420px] overflow-y-auto scrollbar-thin">
                 <table className="w-full text-sm">
@@ -240,7 +235,7 @@ export default function Importar() {
                   </thead>
                   <tbody>
                     {rows.slice(0, 200).map((r, i) => (
-                      <tr key={i} className="border-t border-border/30">
+                      <tr key={i} className="border-t border-border">
                         <td className="py-2 px-2">
                           {r.status === "ok" ? <Check className="w-4 h-4 text-success" /> :
                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -273,69 +268,60 @@ export default function Importar() {
               </div>
               <label className="flex items-center gap-2 mb-3 cursor-pointer">
                 <input type="checkbox" checked={useFileTag} onChange={(e) => onUseFileTagChange(e.target.checked)} className="accent-primary" />
-                <span className="text-xs">Aplicar tag derivada do nome do arquivo a TODOS os contatos importados</span>
+                <span className="text-xs">Aplicar esta tag a TODOS os contatos importados</span>
               </label>
               <Input
                 disabled={!useFileTag}
+                list="tags-existentes"
                 className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30 disabled:opacity-50"
                 value={fileTag}
                 onChange={(e) => onFileTagChange(e.target.value.toLowerCase())}
               />
+              {/* Autocomplete nativo com as tags já existentes — escolher uma
+                  delas anexa a este segmento; digitar um nome novo cria a tag
+                  na hora da importação (o backend já faz isso automaticamente). */}
+              <datalist id="tags-existentes">
+                {existingTags.map((t) => <option key={t.id} value={t.nome} />)}
+              </datalist>
+              {useFileTag && fileTag && (
+                <p className="text-[11px] mt-1.5">
+                  {existingTags.some((t) => t.nome === fileTag) ? (
+                    <span className="text-primary">Tag existente — os contatos serão anexados a ela.</span>
+                  ) : (
+                    <span className="text-warning">Tag nova — será criada ao importar.</span>
+                  )}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground mt-2">
                 Garante que toda lista importada vire um segmento rastreável — nunca perde o vínculo de origem.
               </p>
             </div>
           )}
 
-          <div className="glass-card p-5 animate-fade-in border border-primary/20">
-            <div className="flex items-center gap-2 mb-3">
-              <TagIcon className="w-4 h-4 text-success" />
-              <h3 className="font-semibold text-sm">Etiqueta no WhatsApp</h3>
-              <span className="ml-auto text-[10px] uppercase tracking-wider text-success/80 bg-success/10 px-2 py-0.5 rounded-full">nativa</span>
-            </div>
-            <label className="flex items-center gap-2 mb-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={applyWaLabel}
-                onChange={(e) => setApplyWaLabel(e.target.checked)}
-                className="accent-primary"
-              />
-              <span className="text-xs">Marcar todos os contatos importados com uma etiqueta do WhatsApp Business</span>
-            </label>
-            <Input
-              disabled={!applyWaLabel}
-              placeholder="Ex: Lista Black Friday"
-              className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30 disabled:opacity-50"
-              value={waLabel}
-              onChange={(e) => setWaLabel(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground mt-2">
-              Esta etiqueta é criada (ou reutilizada) <strong className="text-foreground">direto no WhatsApp</strong> via Sistema local. Assim, ao abrir o WhatsApp no celular, o nome do cliente aparece marcado com a lista de origem.
-            </p>
-            {waProgress && (
-              <div className="mt-3">
-                <div className="h-1.5 bg-muted/40 rounded-full overflow-hidden">
-                  <div className="h-full bg-success transition-all" style={{ width: `${(waProgress.done / Math.max(waProgress.total, 1)) * 100}%` }} />
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-1">Aplicando no WhatsApp: {waProgress.done}/{waProgress.total}</p>
+          {fileName && (
+            <div className={`glass-card p-5 animate-fade-in border ${isClientBatch === null ? "border-destructive/40" : "border-primary/20"}`}>
+              <h3 className="font-semibold text-sm mb-1">Estes contatos já são clientes da Áurea?</h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                Obrigatório para "Importar e Salvar". "Não" entra automaticamente na Cadência de Follow-up (D1).
+                O botão "Importar" simples não exige isso — os contatos entram como pendentes de triagem.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIsClientBatch(true)}
+                  className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-all
+                    ${isClientBatch === true ? "bg-primary text-primary-foreground shadow-glow" : "bg-muted/40 text-muted-foreground hover:bg-primary/10 hover:text-foreground"}`}
+                >Sim, já são clientes</button>
+                <button
+                  onClick={() => setIsClientBatch(false)}
+                  className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-all
+                    ${isClientBatch === false ? "bg-primary text-primary-foreground shadow-glow" : "bg-muted/40 text-muted-foreground hover:bg-primary/10 hover:text-foreground"}`}
+                >Não, são leads frios</button>
               </div>
-            )}
-          </div>
-
-
-          <div className="glass-card p-5 animate-fade-in">
-            <div className="flex items-center gap-2 mb-3">
-              <TagIcon className="w-4 h-4 text-primary" />
-              <h3 className="font-semibold text-sm">Tag padrão</h3>
+              {isClientBatch === null && (
+                <p className="text-[11px] text-destructive mt-2">Selecione uma opção para liberar o "Importar e Salvar".</p>
+              )}
             </div>
-            <Input
-              placeholder="Ex: black-friday-2024"
-              className="bg-input/60 border-transparent focus-visible:ring-1 focus-visible:ring-primary/30"
-              value={defaultTag}
-              onChange={(e) => onTagChange(e.target.value.toLowerCase())}
-            />
-            <p className="text-xs text-muted-foreground mt-2">Aplicada às linhas que não tiverem coluna "tag" preenchida.</p>
-          </div>
+          )}
 
           <div className="glass-card p-5 animate-fade-in">
             <h3 className="font-semibold text-sm mb-2">Aliases reconhecidos</h3>

@@ -2,4 +2,12 @@ node_modules/
 .wwebjs_auth/
 .wwebjs_cache/
 data.db
+data.db-wal
+data.db-shm
+comms-attachments/
 *.log
+
+# Segredos — nunca commitar
+.env
+.env.*
+!.env.example

@@ -1,0 +1,58 @@
+version: "3.9"
+
+# Substitui o Supabase (banco+auth+realtime) por uma stack self-hosted.
+# Rodável localmente hoje (docker compose up); na VPS, o Nginx existente em
+# deploy/nginx/aurea-crm.conf continua apontando para a porta 8787 sem
+# nenhuma mudança — só o que roda ATRÁS dessa porta mudou.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ultranucleos
+      POSTGRES_USER: ultranucleos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432" # só localhost — nunca exposto publicamente
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ultranucleos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  engine:
+    build: ./whatsapp-engine
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://ultranucleos:${POSTGRES_PASSWORD}@postgres:5432/ultranucleos
+      ENGINE_API_KEY: ${ENGINE_API_KEY:?defina ENGINE_API_KEY no .env}
+      PUBLIC_LEADS_API_KEY: ${PUBLIC_LEADS_API_KEY:-}
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:?defina DATA_ENCRYPTION_KEY no .env}
+      PHONE_HASH_SECRET: ${PHONE_HASH_SECRET:?defina PHONE_HASH_SECRET no .env}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_ALLOW_SELF_SIGNED: ${SMTP_ALLOW_SELF_SIGNED:-false}
+      APP_BASE_URL: ${APP_BASE_URL:-}
+      LOGIN_RATE_LIMIT_MAX: ${LOGIN_RATE_LIMIT_MAX:-5}
+      LOGIN_LOCKOUT_MINUTES: ${LOGIN_LOCKOUT_MINUTES:-15}
+      PASSWORD_RESET_TOKEN_TTL_MIN: ${PASSWORD_RESET_TOKEN_TTL_MIN:-30}
+      DATA_DIR: /data
+    volumes:
+      - engine_data:/data
+    ports:
+      - "127.0.0.1:8787:8787"
+
+volumes:
+  pgdata:
+  engine_data:

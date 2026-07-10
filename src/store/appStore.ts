@@ -2,6 +2,9 @@ import { create } from "zustand";
 
 export type ConnectionStatus = "disconnected" | "connecting" | "qr" | "ready";
 
+export type AtuaMercadoFinanceiro = "SIM" | "NAO" | "NUMERO_MUDOU_TITULAR" | "A_CONFIRMAR" | "CONCORRENCIA";
+export type CadenceStage = "NONE" | "D1" | "D3" | "D7" | "D15" | "D75" | "ENCERRADO_SEM_RESPOSTA";
+
 export interface Contact {
   id: string;
   nome: string;
@@ -15,6 +18,32 @@ export interface Contact {
   tags: string[];      // múltiplas tags
   customData?: Record<string, string | number | boolean>;
   createdAt: number;
+  // Cliente da Assessoria / Lead Frio + Cadência de Follow-up — campo único
+  // fonte da verdade (isClient), reflete em Contatos/ficha/Funil/Cadência/Dashboard.
+  isClient?: boolean;
+  isClientSince?: number | null;
+  atuaMercadoFinanceiro?: AtuaMercadoFinanceiro | null;
+  responsavelId?: string | null;
+  lastContactAt?: number | null;
+  conversationStartedAt?: number | null;
+  cadenceStartedAt?: number | null;
+  cadenceLastTouchAt?: number | null;
+  cadenceTouches?: { d1: boolean; d3: boolean; d7: boolean; d15: boolean; d75: boolean };
+  cadencePaused?: boolean;
+  // Sempre computados no backend na leitura (nunca "stale") — ver whatsapp-engine/cadence.js
+  cadenceStage?: CadenceStage;
+  cadenceDueAt?: number | null;
+  cadenceOverdue?: boolean;
+  // Exclusão exige aprovação de um Sócio — presente enquanto há uma
+  // solicitação pendente (ver POST /contacts/:id/request-delete).
+  deleteRequestedBy?: string | null;
+  deleteRequestedByName?: string | null;
+  deleteRequestedAt?: number | null;
+  // true só quando existe uma linha real em contact_stage pra este usuário —
+  // `status` sempre tem um valor (cai pra firstStage por padrão), mas isso não
+  // significa que o contato está de fato no funil. CRM.tsx só mostra quem
+  // tem hasCrmStage=true (import nunca cria essa linha — ver skipStage).
+  hasCrmStage?: boolean;
 }
 
 export interface Tag {
@@ -48,10 +77,14 @@ export interface Template {
   media?: TemplateMedia | null; // anexo do modo simples (não-multipart)
 }
 
+export type QuickReplyVisibility = "personal" | "shared";
 export interface QuickReply {
   id: string;
   atalho: string;
   body: string;
+  visibility?: QuickReplyVisibility;
+  createdBy?: string | null;
+  createdByName?: string | null;
 }
 
 // ─────────────── CRM: pipeline customizável ───────────────
@@ -88,6 +121,18 @@ export interface LogEntry {
   level: "info" | "success" | "error" | "warn";
   message: string;
   contact?: string;
+  actorId?: string;   // quem disparou a ação — ausente = evento de sistema, visível pra todos
+  actorName?: string;
+}
+
+/** Um número de WhatsApp conectado ao CRM (item: suporte a múltiplos números). */
+export interface ConnectionInfo {
+  id: string;
+  label: string;
+  status: "qr" | "ready" | "connecting" | "disconnected";
+  me?: string | null;
+  qr?: string | null;
+  last4?: string | null;
 }
 
 export interface CampaignState {
@@ -121,6 +166,15 @@ export interface Conversation {
   unread: number;
   status: ConvStatus;
   assignee?: string | null;
+  // Arquivamento (item 3 — nunca é DELETE, só esconde da tela normal; ver Auditoria)
+  archived?: number | null;
+  archived_at?: number | null;
+  archived_by?: string | null;
+  archived_reason?: string | null;
+  pinned_at?: number | null;
+  // 4 últimos dígitos do número da empresa que recebeu a mensagem (não o do
+  // cliente) — só vem preenchido se a conexão estiver com sessão ativa.
+  receiverLast4?: string | null;
 }
 
 export interface ChatMessage {
@@ -132,7 +186,21 @@ export interface ChatMessage {
   type: "text" | "image" | "audio" | "video" | "document" | "sticker" | string;
   media_path?: string | null;
   media_mime?: string | null;
+  media_filename?: string | null;
   ack: number;
+  edited_at?: number | null;
+  revoked_at?: number | null;
+  // Só preenchidos quando a revogação partiu do NOSSO lado (POST
+  // /messages/:id/delete-for-everyone) — nulos quando foi o cliente quem
+  // apagou do lado dele (evento message_revoke_everyone do WhatsApp).
+  revoked_by_user_id?: string | null;
+  revoked_by_name?: string | null;
+  // Quem enviou (atendente) — identificação estritamente de UI interna
+  // (rastreio em transferências/auditoria); nunca vai no payload da API do
+  // WhatsApp. Mensagens antigas, sem autor registrado, vêm null — não exibe
+  // nada nesse caso (sem placeholder).
+  sender_user_id?: string | null;
+  sender_name?: string | null;
 }
 
 interface AppState {
@@ -143,6 +211,19 @@ interface AppState {
   qr?: string;
   me?: string;
   setStatus: (s: ConnectionStatus, extras?: { qr?: string; me?: string }) => void;
+
+  // Múltiplos números de WhatsApp — status/qr/me acima continuam refletindo
+  // só a conexão 'default' (compatibilidade); esta lista é a visão completa.
+  connections: ConnectionInfo[];
+  setConnections: (c: ConnectionInfo[]) => void;
+
+  // Cache de foto de perfil do WhatsApp por telefone (chave = só dígitos).
+  // undefined = ainda não carregado nesta sessão; null = sem foto (cliente
+  // sem foto ou privacidade bloqueou) — os dois casos caem nas iniciais, mas
+  // só o `undefined` dispara um novo fetch (ver api.loadAvatar), pra nunca
+  // bater na API do WhatsApp de novo a cada render.
+  avatars: Record<string, string | null>;
+  setAvatar: (telefone: string, path: string | null) => void;
 
   contacts: Contact[];
   setContacts: (c: Contact[]) => void;
@@ -167,6 +248,7 @@ interface AppState {
   messagesByChat: Record<string, ChatMessage[]>;
   setMessages: (chatId: string, msgs: ChatMessage[]) => void;
   pushMessage: (m: ChatMessage) => void;
+  patchMessage: (chatId: string, messageId: string, patch: Partial<ChatMessage>) => void;
 
   logs: LogEntry[];
   pushLog: (l: Omit<LogEntry, "id" | "ts"> & { ts?: number }) => void;
@@ -302,6 +384,12 @@ export const useAppStore = create<AppState>((set, get) => {
     me: undefined,
     setStatus: (s, extras) => set({ status: s, qr: extras?.qr, me: extras?.me ?? get().me }),
 
+    connections: [],
+    setConnections: (c) => set({ connections: c }),
+
+    avatars: {},
+    setAvatar: (telefone, path) => set((s) => ({ avatars: { ...s.avatars, [telefone]: path } })),
+
     contacts: initial.contacts,
     setContacts: (c) => { set({ contacts: c }); persist({ ...get(), contacts: c }); },
     addContacts: (c) => {
@@ -355,10 +443,20 @@ export const useAppStore = create<AppState>((set, get) => {
       if (list.some((x) => x.id === m.id)) return {};
       return { messagesByChat: { ...st.messagesByChat, [m.chat_id]: [...list, m] } };
     }),
+    patchMessage: (chatId, messageId, patch) => set((st) => {
+      const list = st.messagesByChat[chatId];
+      if (!list) return {};
+      return {
+        messagesByChat: {
+          ...st.messagesByChat,
+          [chatId]: list.map((m) => (m.id === messageId ? { ...m, ...patch } : m)),
+        },
+      };
+    }),
 
     logs: initial.logs ?? [],
     pushLog: (l) => {
-      const next = [{ id: crypto.randomUUID(), ts: l.ts ?? Date.now(), level: l.level, message: l.message, contact: l.contact }, ...get().logs].slice(0, 2000);
+      const next = [{ id: crypto.randomUUID(), ts: l.ts ?? Date.now(), level: l.level, message: l.message, contact: l.contact, actorId: l.actorId, actorName: l.actorName }, ...get().logs].slice(0, 2000);
       set({ logs: next });
       persist({ ...get(), logs: next });
     },

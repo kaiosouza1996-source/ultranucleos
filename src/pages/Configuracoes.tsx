@@ -1,4 +1,5 @@
 import { AppHeader } from "@/components/AppHeader";
+import { GradientDivider } from "@/components/GradientDivider";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -8,18 +9,23 @@ import {
   type CustomField,
   type CustomFieldType,
   type LogEntry,
+  type PipelineStage,
 } from "@/store/appStore";
-import { Save, Shield, Trash, Plus, X, GripVertical, Briefcase, QrCode, ScrollText, CheckCircle2, RefreshCw, LogOut, Filter, Download, Info } from "lucide-react";
+import { Save, Shield, Trash, Plus, X, GripVertical, Briefcase, QrCode, ScrollText, CheckCircle2, RefreshCw, LogOut, Filter, Download, Info, ShieldCheck, KeyRound } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
-import { mockConnectWhatsApp, mockDisconnect, engineClient } from "@/lib/engine";
+import { mockConnectWhatsApp, mockDisconnect, engineClient, ENGINE_HTTP, updateAntiBanSettings } from "@/lib/engine";
+import { useAuthStore } from "@/store/authStore";
+import { authClient } from "@/lib/authClient";
+import { AuditoriaSection } from "@/components/AuditoriaSection";
+import { ConnectionsManager } from "@/components/ConnectionsManager";
 
 export default function Configuracoes() {
   const settings = useAppStore((s) => s.settings);
-  const update   = useAppStore((s) => s.updateSettings);
+  const update   = updateAntiBanSettings;
   const location = useLocation();
   const [tab, setTab] = useState("anti-ban");
 
@@ -28,11 +34,12 @@ export default function Configuracoes() {
     else if (location.pathname === "/conexao") setTab("conexao");
     else if (location.pathname === "/logs") setTab("logs");
     else if (location.hash === "#Sistema") setTab("Sistema");
+    else if (location.hash === "#auditoria") setTab("auditoria");
   }, [location.hash, location.pathname]);
 
   return (
     <>
-      <AppHeader title="Configurações" subtitle="Conexão, anti-ban, CRM, logs e Sistema local" />
+      <AppHeader title="Configurações" subtitle="Conexão, anti-ban, CRM, logs e Sistema" />
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-4">
         <TabsList className="bg-muted/30 flex-wrap h-auto">
@@ -40,8 +47,14 @@ export default function Configuracoes() {
           <TabsTrigger value="anti-ban"><Shield className="w-3.5 h-3.5 mr-1.5" /> Anti-ban</TabsTrigger>
           <TabsTrigger value="crm"><Briefcase className="w-3.5 h-3.5 mr-1.5" /> CRM</TabsTrigger>
           <TabsTrigger value="logs"><ScrollText className="w-3.5 h-3.5 mr-1.5" /> Logs</TabsTrigger>
-          <TabsTrigger value="Sistema">Sistema local</TabsTrigger>
+          <TabsTrigger value="Sistema">Sistema</TabsTrigger>
+          <TabsTrigger value="seguranca"><ShieldCheck className="w-3.5 h-3.5 mr-1.5" /> Segurança</TabsTrigger>
+          <TabsTrigger value="auditoria"><ShieldCheck className="w-3.5 h-3.5 mr-1.5" /> Auditoria</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="seguranca" className="space-y-4">
+          <SegurancaSection />
+        </TabsContent>
 
         <TabsContent value="conexao" className="space-y-4">
           <ConexaoSection />
@@ -99,7 +112,8 @@ export default function Configuracoes() {
                 info="Quanto tempo dura a pausa longa, em segundos. Quanto maior, mais o WhatsApp entende que há uma pessoa real por trás. Recomendado: 60–120s."
               />
             </div>
-            <div className="flex items-center justify-between pt-2 border-t border-border/30">
+            <GradientDivider className="mb-2" />
+            <div className="flex items-center justify-between pt-2">
               <div className="flex items-center gap-2">
                 <div>
                   <div className="text-sm font-medium">Evitar duplicados</div>
@@ -132,19 +146,7 @@ export default function Configuracoes() {
 
         {/* ─────────── Sistema + reset ─────────── */}
         <TabsContent value="Sistema" className="space-y-4">
-          <div className="glass-card p-6 animate-fade-in">
-            <h3 className="font-semibold mb-3">Sistema local</h3>
-            <p className="text-sm text-muted-foreground mb-3">
-              O Sistema roda separadamente em <code className="px-1.5 py-0.5 rounded bg-muted text-foreground text-xs">whatsapp-engine/</code>.
-              Inicie com:
-            </p>
-            <pre className="text-xs bg-muted/40 rounded p-3"><code>cd whatsapp-engine
-npm install
-npm start</code></pre>
-            <p className="text-xs text-muted-foreground mt-3">
-              Endereço esperado: <code className="px-1 rounded bg-muted text-foreground">ws://localhost:8787</code>
-            </p>
-          </div>
+          <SistemaSection />
 
           <div className="glass-card p-6 animate-fade-in border-destructive/30">
             <h3 className="font-semibold mb-2 text-destructive flex items-center gap-2">
@@ -165,10 +167,27 @@ npm start</code></pre>
             </Button>
           </div>
         </TabsContent>
+
+        {/* ─────────── Auditoria — todo mundo vê Em aberto/Finalizadas (só
+            as próprias), Arquivadas e o audit log continuam só Sócio ─────────── */}
+        <TabsContent value="auditoria" className="space-y-4">
+          <AuditoriaSection />
+        </TabsContent>
       </Tabs>
     </>
   );
 }
+
+// Paleta de cores prontas para as etapas do pipeline — o usuário nunca vê o
+// código HSL bruto, só escolhe visualmente clicando na bolinha colorida.
+const STAGE_COLOR_PALETTE = [
+  "213 100% 60%", // azul
+  "271 91% 65%",  // roxo
+  "330 100% 70%", // rosa
+  "142 71% 45%",  // verde
+  "38 95% 55%",   // âmbar
+  "0 84% 60%",    // vermelho
+];
 
 // ─────────────── Pipeline editor ───────────────
 function PipelineEditor() {
@@ -177,7 +196,13 @@ function PipelineEditor() {
   const removeStage  = useAppStore((s) => s.removeStage);
   const setStages    = useAppStore((s) => s.setPipelineStages);
 
-  const [draft, setDraft] = useState({ label: "", color: "213 100% 60%" });
+  const [draft, setDraft] = useState({ label: "" });
+
+  const cycleColor = (s: PipelineStage) => {
+    const idx = STAGE_COLOR_PALETTE.indexOf(s.color);
+    const next = STAGE_COLOR_PALETTE[(idx + 1) % STAGE_COLOR_PALETTE.length];
+    upsertStage({ ...s, color: next });
+  };
 
   const add = () => {
     const label = draft.label.trim();
@@ -188,10 +213,10 @@ function PipelineEditor() {
       return;
     }
     upsertStage({
-      key, label, color: draft.color,
+      key, label, color: STAGE_COLOR_PALETTE[stages.length % STAGE_COLOR_PALETTE.length],
       order: stages.length,
     });
-    setDraft({ label: "", color: "213 100% 60%" });
+    setDraft({ label: "" });
     toast.success(`Etapa "${label}" criada`);
   };
 
@@ -211,12 +236,12 @@ function PipelineEditor() {
         <h3 className="font-semibold">Etapas do pipeline</h3>
       </div>
       <p className="text-xs text-muted-foreground mb-4">
-        Personalize as colunas que aparecem no Kanban do CRM. Etapas terminais marcam conversas como finalizadas.
+        Personalize as colunas que aparecem no Kanban do CRM.
       </p>
 
       <div className="space-y-2 mb-4">
         {stages.map((s, i) => (
-          <div key={s.key} className="flex items-center gap-2 p-2 rounded-lg bg-muted/20 border border-border/30">
+          <div key={s.key} className="flex items-center gap-2 p-2 rounded-lg bg-muted/20 border border-border">
             <div className="flex flex-col">
               <button
                 onClick={() => move(s.key, -1)}
@@ -230,8 +255,11 @@ function PipelineEditor() {
               >▼</button>
             </div>
             <GripVertical className="w-4 h-4 text-muted-foreground" />
-            <span
-              className="w-3 h-3 rounded-full shrink-0"
+            <button
+              type="button"
+              onClick={() => cycleColor(s)}
+              title="Clique para trocar a cor"
+              className="w-4 h-4 rounded-full shrink-0"
               style={{ background: `hsl(${s.color})`, boxShadow: `0 0 8px hsl(${s.color})` }}
             />
             <Input
@@ -239,21 +267,6 @@ function PipelineEditor() {
               onChange={(e) => upsertStage({ ...s, label: e.target.value })}
               className="bg-input/60 flex-1"
             />
-            <Input
-              value={s.color}
-              onChange={(e) => upsertStage({ ...s, color: e.target.value })}
-              className="bg-input/60 w-32 font-mono text-xs"
-              placeholder="HSL ex: 213 100% 60%"
-            />
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
-              <input
-                type="checkbox"
-                checked={!!s.terminal}
-                onChange={(e) => upsertStage({ ...s, terminal: e.target.checked })}
-                className="accent-primary"
-              />
-              Final
-            </label>
             <Button
               size="icon"
               variant="ghost"
@@ -268,19 +281,14 @@ function PipelineEditor() {
         ))}
       </div>
 
-      <div className="flex items-center gap-2 pt-3 border-t border-border/30">
+      <GradientDivider className="mb-3" />
+      <div className="flex items-center gap-2">
         <Input
           placeholder="Nome da nova etapa"
           value={draft.label}
           onChange={(e) => setDraft({ ...draft, label: e.target.value })}
           className="bg-input/60 flex-1"
           onKeyDown={(e) => { if (e.key === "Enter") add(); }}
-        />
-        <Input
-          placeholder="HSL: 213 100% 60%"
-          value={draft.color}
-          onChange={(e) => setDraft({ ...draft, color: e.target.value })}
-          className="bg-input/60 w-44 font-mono text-xs"
         />
         <Button className="btn-glow" onClick={add}>
           <Plus className="w-4 h-4 mr-1" /> Adicionar
@@ -330,12 +338,12 @@ function CustomFieldsEditor() {
 
       <div className="space-y-2 mb-4">
         {fields.length === 0 && (
-          <div className="text-sm text-muted-foreground py-6 text-center border border-dashed border-border/30 rounded-lg">
+          <div className="text-sm text-muted-foreground py-6 text-center border border-dashed border-border rounded-lg">
             Nenhum campo personalizado ainda.
           </div>
         )}
         {fields.map((f) => (
-          <div key={f.id} className="flex items-center gap-2 p-2 rounded-lg bg-muted/20 border border-border/30">
+          <div key={f.id} className="flex items-center gap-2 p-2 rounded-lg bg-muted/20 border border-border">
             <Input
               value={f.label}
               onChange={(e) => upsert({ ...f, label: e.target.value })}
@@ -344,7 +352,7 @@ function CustomFieldsEditor() {
             <select
               value={f.type}
               onChange={(e) => upsert({ ...f, type: e.target.value as CustomFieldType })}
-              className="bg-input rounded px-3 py-2 text-sm border border-border/40 w-32"
+              className="bg-input rounded px-3 py-2 text-sm border border-border w-32"
             >
               <option value="text">Texto</option>
               <option value="number">Número</option>
@@ -370,7 +378,8 @@ function CustomFieldsEditor() {
         ))}
       </div>
 
-      <div className="flex items-center gap-2 pt-3 border-t border-border/30">
+      <GradientDivider className="mb-3" />
+      <div className="flex items-center gap-2">
         <Input
           placeholder="Nome do campo (ex: Aniversário)"
           value={draft.label}
@@ -381,7 +390,7 @@ function CustomFieldsEditor() {
         <select
           value={draft.type}
           onChange={(e) => setDraft({ ...draft, type: e.target.value as CustomFieldType })}
-          className="bg-input rounded px-3 py-2 text-sm border border-border/40 w-32"
+          className="bg-input rounded px-3 py-2 text-sm border border-border w-32"
         >
           <option value="text">Texto</option>
           <option value="number">Número</option>
@@ -451,6 +460,8 @@ function ConexaoSection() {
     else mockDisconnect();
   };
 
+  if (engineOnline) return <ConnectionsManager />;
+
   return (
     <div className="grid lg:grid-cols-2 gap-4">
       <div className="glass-card p-6 animate-scale-in flex flex-col items-center justify-center text-center min-h-[360px]">
@@ -468,7 +479,12 @@ function ConexaoSection() {
         ) : qr ? (
           <>
             <div className="bg-white p-4 rounded-xl shadow-elevated">
-              <QRCodeSVG value={qr} size={200} level="M" />
+              {/* QR real do Sistema já vem pronto como imagem — nunca re-codificar como texto (estoura o limite do QR e quebra a tela). Mock manda um texto curto, aí sim gera o desenho aqui. */}
+              {qr.startsWith("data:image") ? (
+                <img src={qr} alt="QR Code do WhatsApp" width={200} height={200} />
+              ) : (
+                <QRCodeSVG value={qr} size={200} level="M" />
+              )}
             </div>
             <p className="text-xs text-muted-foreground mt-3 max-w-xs">
               WhatsApp → <strong className="text-foreground">Aparelhos conectados</strong> → Conectar um aparelho.
@@ -495,14 +511,215 @@ function ConexaoSection() {
         <h3 className="font-semibold mb-3">Status do Sistema</h3>
         <div className="flex items-center gap-3 text-sm mb-4">
           <span className={`status-dot ${engineOnline ? "bg-success text-success" : "bg-warning text-warning"}`} />
-          <span>{engineOnline ? "ws://localhost:8787 conectado" : "Sistema offline — simulação"}</span>
+          <span>{engineOnline ? "Sistema conectado" : "Sistema offline — modo simulação"}</span>
         </div>
-        <h4 className="font-semibold text-sm mb-2">Como funciona</h4>
-        <ol className="space-y-2 text-xs text-muted-foreground list-decimal list-inside">
-          <li>Inicie <code className="px-1 rounded bg-muted text-foreground">npm start</code> em <code className="px-1 rounded bg-muted text-foreground">whatsapp-engine/</code></li>
-          <li>O painel conecta automaticamente</li>
-          <li>Escaneie o QR uma única vez — sessão persistente</li>
-        </ol>
+        <p className="text-xs text-muted-foreground">
+          Escaneie o QR code uma única vez — a sessão do WhatsApp fica salva e sobrevive a reinícios do Sistema.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────── Trocar senha (usuário logado define a própria senha) ───────────────
+function TrocarSenhaCard() {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (!currentPassword || !newPassword) { toast.error("Preencha a senha atual e a nova senha."); return; }
+    if (newPassword.length < 8) { toast.error("A nova senha precisa ter pelo menos 8 caracteres."); return; }
+    if (newPassword !== confirmPassword) { toast.error("A confirmação não bate com a nova senha."); return; }
+    setBusy(true);
+    try {
+      await authClient.changePassword(currentPassword, newPassword);
+      toast.success("Senha alterada com sucesso.");
+      setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+    } catch (e) {
+      toast.error((e as Error).message || "Não foi possível trocar a senha.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="glass-card p-6 animate-fade-in">
+      <div className="flex items-center gap-2 mb-1">
+        <KeyRound className="w-4 h-4 text-primary" />
+        <h3 className="font-semibold">Alterar senha</h3>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        Defina uma senha pessoal só sua — ninguém mais no CRM tem acesso a ela.
+      </p>
+      <div className="grid sm:grid-cols-3 gap-3">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Senha atual</label>
+          <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} className="bg-input/60" autoComplete="current-password" />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Nova senha</label>
+          <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="bg-input/60" autoComplete="new-password" placeholder="Mínimo 8 caracteres" />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Confirmar nova senha</label>
+          <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="bg-input/60" autoComplete="new-password" />
+        </div>
+      </div>
+      <Button className="btn-glow mt-4" disabled={busy} onClick={submit}>
+        {busy ? "Salvando…" : "Salvar nova senha"}
+      </Button>
+    </div>
+  );
+}
+
+// ─────────────── Segurança (MFA) ───────────────
+function SegurancaSection() {
+  const isSocio = useAuthStore((s) => s.profile?.role === "socio");
+  const [enabled, setEnabled] = useState(false);
+  const [enrolling, setEnrolling] = useState(false);
+  const [qrCode, setQrCode] = useState<string | null>(null);
+  const [secret, setSecret] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const refresh = async () => {
+    const { verified } = await authClient.mfaFactors();
+    setEnabled(verified);
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  const startEnroll = async () => {
+    setBusy(true);
+    try {
+      const { qrCodeDataUrl, secret } = await authClient.mfaEnroll();
+      setQrCode(qrCodeDataUrl);
+      setSecret(secret);
+      setEnrolling(true);
+    } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+  };
+
+  const confirmEnroll = async () => {
+    if (code.length !== 6) return;
+    setBusy(true);
+    try {
+      await authClient.mfaEnrollConfirm(code);
+      toast.success("Autenticação em duas etapas ativada.");
+      setEnrolling(false); setQrCode(null); setSecret(null); setCode("");
+      await refresh();
+    } catch {
+      toast.error("Código inválido — confira o app autenticador e tente de novo.");
+    } finally { setBusy(false); }
+  };
+
+  const disable = async () => {
+    if (!enabled) return;
+    if (!window.confirm("Desativar a verificação em duas etapas?")) return;
+    setBusy(true);
+    try {
+      await authClient.mfaUnenroll();
+      toast.success("Verificação em duas etapas desativada.");
+      await refresh();
+    } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <TrocarSenhaCard />
+      {isSocio && !enabled && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 text-warning text-xs px-3 py-2.5">
+          Recomendado para o papel Sócio: ative a verificação em duas etapas para proteger o acesso a dados de clientes.
+        </div>
+      )}
+      <div className="glass-card p-6 animate-fade-in">
+        <div className="flex items-center gap-2 mb-1">
+          <ShieldCheck className="w-4 h-4 text-primary" />
+          <h3 className="font-semibold">Verificação em duas etapas (TOTP)</h3>
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          Além da senha, exige um código de 6 dígitos gerado por um app autenticador (Google Authenticator, Authy, 1Password…) a cada login.
+        </p>
+
+        {!enrolling && (
+          <div className="flex items-center gap-3">
+            <span className={`status-dot ${enabled ? "bg-success text-success" : "bg-muted-foreground text-muted-foreground"}`} />
+            <span className="text-sm">{enabled ? "Ativada" : "Desativada"}</span>
+            <div className="ml-auto">
+              {enabled ? (
+                <Button variant="outline" className="border-destructive/40 text-destructive hover:bg-destructive/10" disabled={busy} onClick={disable}>Desativar</Button>
+              ) : (
+                <Button className="btn-glow" disabled={busy} onClick={startEnroll}>Ativar</Button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {enrolling && qrCode && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+              <div className="bg-white p-3 rounded-xl shadow-elevated shrink-0">
+                <img src={qrCode} alt="QR Code MFA" width={160} height={160} />
+              </div>
+              <div className="text-xs text-muted-foreground space-y-2">
+                <p>1. Escaneie este QR com seu app autenticador (ou digite a chave manualmente).</p>
+                {secret && <p className="font-mono text-[11px] bg-muted/30 px-2 py-1 rounded break-all">{secret}</p>}
+                <p>2. Digite abaixo o código de 6 dígitos gerado pelo app.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                inputMode="numeric"
+                maxLength={6}
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                placeholder="000000"
+                className="bg-input/60 max-w-[140px] text-center tracking-[0.3em] font-mono"
+              />
+              <Button className="btn-glow" disabled={busy || code.length !== 6} onClick={confirmEnroll}>Confirmar</Button>
+              <Button variant="ghost" onClick={() => { setEnrolling(false); setQrCode(null); setCode(""); }}>Cancelar</Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────── Sistema ───────────────
+function SistemaSection() {
+  const engineOnline = useAppStore((s) => s.engineOnline);
+  const status = useAppStore((s) => s.status);
+  const me = useAppStore((s) => s.me);
+
+  const statusLabel = status === "ready" && engineOnline ? `Conectado${me ? ` — ${me}` : ""}`
+    : status === "qr" ? "Aguardando escaneio do QR"
+    : status === "connecting" ? "Conectando…"
+    : "Desconectado";
+
+  return (
+    <div className="space-y-4">
+      <div className="glass-card p-6 animate-fade-in">
+        <h3 className="font-semibold mb-4">Sistema</h3>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">Status</div>
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <span className={`status-dot ${engineOnline ? "bg-success text-success" : "bg-warning text-warning"}`} />
+              {engineOnline ? "Conectado" : "Offline — modo simulação"}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">WhatsApp</div>
+            <div className="text-sm font-medium">{statusLabel}</div>
+          </div>
+        </div>
+        <GradientDivider className="mt-4 mb-4" />
+        <div>
+          <div className="text-xs text-muted-foreground mb-1">Endereço do Sistema</div>
+          <code className="text-xs px-2 py-1 rounded bg-muted text-foreground break-all">{ENGINE_HTTP}</code>
+        </div>
       </div>
     </div>
   );
@@ -517,9 +734,17 @@ const levelStyles: Record<LogEntry["level"], string> = {
 };
 
 function LogsSection() {
-  const logs = useAppStore((s) => s.logs);
+  const allLogs = useAppStore((s) => s.logs);
   const clear = useAppStore((s) => s.clearLogs);
+  const profile = useAuthStore((s) => s.profile);
   const [filter, setFilter] = useState<"all" | LogEntry["level"]>("all");
+
+  // Mesmo critério do Dashboard: feed por login, não compartilhado — Sócio
+  // vê tudo (visão de equipe), os demais só o que fizeram + eventos de sistema.
+  const logs = useMemo(() => {
+    if (!profile || profile.role === "socio") return allLogs;
+    return allLogs.filter((l) => !l.actorId || l.actorId === profile.id);
+  }, [allLogs, profile]);
 
   const filtered = useMemo(() => filter === "all" ? logs : logs.filter((l) => l.level === filter), [logs, filter]);
 

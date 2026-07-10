@@ -118,7 +118,12 @@ export function normalizeRows(parsed: ParsedSheet, opts: {
     const telRaw = String(inv.telefone ? r[inv.telefone] ?? "" : "").trim();
     const dddRaw = String(inv.ddd ? r[inv.ddd] ?? "" : "").trim();
     const tagRaw = String(inv.tag ? r[inv.tag] ?? "" : "").trim();
-    const tags = (tagRaw || opts.defaultTag || "geral")
+    // Sem fallback pra "geral" — isso fazia todo contato ganhar essa tag
+    // além da tag da lista (aplicada depois, em Importar.tsx::reprocess),
+    // resultando em duas tags quando só uma foi pedida. Sem tag explícita
+    // na planilha nem tag padrão escolhida, o contato simplesmente não
+    // ganha tag nenhuma daqui (a tag do arquivo ainda se aplica normalmente).
+    const tags = (tagRaw || opts.defaultTag || "")
       .split(/[,;|]/).map((s) => s.toLowerCase().trim()).filter(Boolean);
     const email = inv.email ? String(r[inv.email] ?? "").trim() : undefined;
     const documento = inv.documento ? String(r[inv.documento] ?? "").trim() : undefined;

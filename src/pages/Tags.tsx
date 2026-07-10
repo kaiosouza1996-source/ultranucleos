@@ -1,11 +1,14 @@
 import { AppHeader } from "@/components/AppHeader";
+import { GradientDivider } from "@/components/GradientDivider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAppStore } from "@/store/appStore";
 import { Tag as TagIcon, Plus, Trash2, Pencil, Users, UserPlus, Check, Search, X, ChevronDown, ChevronRight } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { formatPhoneDisplay } from "@/lib/phone";
 import { toast } from "sonner";
+import { api } from "@/lib/engine";
 
 const PALETTE = ["#2D8CFF", "#22D3EE", "#A78BFA", "#F59E0B", "#10B981", "#EF4444", "#EC4899", "#84CC16"];
 
@@ -16,8 +19,11 @@ export default function Tags() {
   const updateContact = useAppStore((s) => s.updateContact);
   const persisted = useAppStore((s) => s.tags);
   const setTags = useAppStore((s) => s.setTags);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tagRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const [newTag, setNewTag] = useState("");
+  const [newTagColor, setNewTagColor] = useState(PALETTE[0]);
   const [editing, setEditing] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -37,28 +43,56 @@ export default function Tags() {
     return Array.from(map.values()).sort((a, b) => b.count - a.count);
   }, [contacts, persisted]);
 
-  const create = () => {
+  // Deep-link a partir do widget "Top tags" do Dashboard (Parte T5) —
+  // ?open=<tag> expande a mesma tag e rola até ela, igual clicar manualmente
+  // no ChevronRight faria.
+  useEffect(() => {
+    const open = searchParams.get("open");
+    if (!open || !tags.some((t) => t.nome === open)) return;
+    setExpanded(open);
+    tagRowRefs.current[open]?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("open");
+      return next;
+    }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, tags]);
+
+  const create = async () => {
     const norm = newTag.toLowerCase().trim();
     if (!norm) return;
     if (tags.some((t) => t.nome === norm)) { toast.error("Tag já existe"); return; }
-    setTags([...persisted, { id: crypto.randomUUID(), nome: norm, cor: PALETTE[persisted.length % PALETTE.length] }]);
-    setNewTag("");
-    toast.success("Tag criada");
+    try {
+      // Precisa esperar o id real do servidor — criar com crypto.randomUUID()
+      // local fazia a tag "sumir" depois de qualquer reload/refetch, porque
+      // esse id nunca batia com nenhuma linha no banco (rename/remover
+      // depois também falhavam silenciosamente pelo mesmo motivo).
+      const created = await api.createTag(norm, newTagColor);
+      setTags([...persisted, { id: created.id, nome: norm, cor: newTagColor }]);
+      setNewTag("");
+      toast.success("Tag criada");
+    } catch (e) {
+      toast.error(`Falha ao criar tag: ${(e as Error).message}`);
+    }
   };
 
-  const remove = (nome: string) => {
+  const remove = async (nome: string) => {
     if (!confirm(`Remover a tag "${nome}" de todos os contatos?`)) return;
+    const tagId = persisted.find((t) => t.nome === nome)?.id;
     for (const c of contacts) {
       if (c.tags.includes(nome)) updateContact(c.id, { tags: c.tags.filter((t) => t !== nome) });
     }
     setTags(persisted.filter((t) => t.nome !== nome));
+    if (tagId) await api.deleteTag(tagId).catch(() => {});
     toast.success("Tag removida");
   };
 
-  const rename = (oldName: string) => {
+  const rename = async (oldName: string) => {
     const norm = renameValue.toLowerCase().trim();
     if (!norm || norm === oldName) { setEditing(null); return; }
     if (tags.some((t) => t.nome === norm)) { toast.error("Já existe uma tag com esse nome"); return; }
+    const tagId = persisted.find((t) => t.nome === oldName)?.id;
     for (const c of contacts) {
       if (c.tags.includes(oldName)) {
         updateContact(c.id, { tags: Array.from(new Set(c.tags.map((t) => t === oldName ? norm : t))) });
@@ -66,6 +100,7 @@ export default function Tags() {
     }
     setTags(persisted.map((t) => t.nome === oldName ? { ...t, nome: norm } : t));
     setEditing(null);
+    if (tagId) await api.updateTag(tagId, { nome: norm }).catch(() => {});
     toast.success("Tag renomeada");
   };
 
@@ -82,16 +117,22 @@ export default function Tags() {
       return next;
     });
   };
-  const applyBulk = () => {
+  const applyBulk = async () => {
     if (!bulkTag) return;
-    let added = 0; let removed = 0;
+    const tagId = persisted.find((t) => t.nome === bulkTag)?.id;
+    const toAdd: string[] = [];
+    const toRemove: string[] = [];
     for (const c of contacts) {
       const has = c.tags.includes(bulkTag);
       const should = bulkSelected.has(c.id);
-      if (should && !has) { updateContact(c.id, { tags: [...c.tags, bulkTag] }); added++; }
-      else if (!should && has) { updateContact(c.id, { tags: c.tags.filter((t) => t !== bulkTag) }); removed++; }
+      if (should && !has) { updateContact(c.id, { tags: [...c.tags, bulkTag] }); toAdd.push(c.id); }
+      else if (!should && has) { updateContact(c.id, { tags: c.tags.filter((t) => t !== bulkTag) }); toRemove.push(c.id); }
     }
-    toast.success(`#${bulkTag}: ${added} adicionadas, ${removed} removidas`);
+    if (tagId) {
+      if (toAdd.length) await api.tagContacts(tagId, toAdd).catch(() => {});
+      for (const cid of toRemove) await api.untagContact(tagId, cid).catch(() => {});
+    }
+    toast.success(`#${bulkTag}: ${toAdd.length} adicionadas, ${toRemove.length} removidas`);
     closeBulk();
   };
 
@@ -124,6 +165,20 @@ export default function Tags() {
               />
               <Button className="btn-glow" onClick={create}><Plus className="w-4 h-4 mr-1" /> Criar</Button>
             </div>
+            <div className="flex items-center gap-2 mt-3">
+              <span className="text-xs text-muted-foreground">Cor:</span>
+              {PALETTE.map((cor) => (
+                <button
+                  key={cor}
+                  onClick={() => setNewTagColor(cor)}
+                  title={cor}
+                  className="w-6 h-6 rounded-full transition-transform hover:scale-110 flex items-center justify-center"
+                  style={{ background: cor, boxShadow: newTagColor === cor ? `0 0 0 2px hsl(var(--background)), 0 0 0 4px ${cor}` : "none" }}
+                >
+                  {newTagColor === cor && <Check className="w-3 h-3 text-white" />}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="glass-card p-5 animate-fade-in">
@@ -143,6 +198,7 @@ export default function Tags() {
                   return (
                     <div
                       key={t.nome}
+                      ref={(el) => { tagRowRefs.current[t.nome] = el; }}
                       className="rounded-xl transition-all duration-300 hover:-translate-y-0.5"
                       style={{
                         background: `linear-gradient(135deg, ${t.cor}1f, ${t.cor}08 50%, transparent)`,
@@ -235,7 +291,7 @@ export default function Tags() {
       {bulkTag && (
         <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={closeBulk}>
           <div className="glass-card w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <header className="flex items-center justify-between p-5 border-b border-border/30">
+            <header className="flex items-center justify-between p-5">
               <div>
                 <h3 className="font-semibold flex items-center gap-2">
                   <UserPlus className="w-4 h-4 text-primary" />
@@ -245,8 +301,9 @@ export default function Tags() {
               </div>
               <Button size="icon" variant="ghost" onClick={closeBulk}><X className="w-4 h-4" /></Button>
             </header>
+            <GradientDivider />
 
-            <div className="p-4 border-b border-border/30 flex items-center gap-2">
+            <div className="p-4 flex items-center gap-2">
               <div className="relative flex-1">
                 <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input className="pl-8 h-9 bg-input/60" placeholder="Buscar contato por nome ou telefone…"
@@ -257,6 +314,7 @@ export default function Tags() {
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setBulkSelected(new Set())}>Limpar</Button>
             </div>
+            <GradientDivider />
 
             <div className="flex-1 overflow-y-auto scrollbar-thin">
               {bulkContacts.length === 0 ? (
@@ -265,7 +323,7 @@ export default function Tags() {
                 const checked = bulkSelected.has(c.id);
                 return (
                   <button key={c.id} onClick={() => toggleBulk(c.id)}
-                    className={`w-full flex items-center gap-3 px-5 py-2.5 text-left border-b border-border/20 transition-colors
+                    className={`w-full flex items-center gap-3 px-5 py-2.5 text-left border-b border-border transition-colors
                       ${checked ? "bg-primary/10" : "hover:bg-muted/30"}`}>
                     <span className={`w-5 h-5 rounded border flex items-center justify-center
                       ${checked ? "bg-primary border-primary" : "border-border"}`}>
@@ -287,7 +345,8 @@ export default function Tags() {
               })}
             </div>
 
-            <footer className="p-4 border-t border-border/30 flex items-center justify-between">
+            <GradientDivider />
+            <footer className="p-4 flex items-center justify-between">
               <span className="text-xs text-muted-foreground">{bulkSelected.size} contatos selecionados</span>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={closeBulk}>Cancelar</Button>

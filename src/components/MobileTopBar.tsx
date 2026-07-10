@@ -9,6 +9,8 @@ const titles: Record<string, string> = {
   "/tags": "Tags",
   "/importar": "Importar",
   "/disparos": "Disparos",
+  "/comunicacao": "Comunicação Interna",
+  "/manual": "Manual Operacional",
   "/configuracoes": "Configurações",
   "/conexao": "Conexão",
   "/mensagens": "Mensagens",

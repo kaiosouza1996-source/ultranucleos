@@ -1,72 +1,89 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* WhatsApp Sender — corporate dark blue design system. All colors HSL. */
+/* Áurea Investing — design system (navy/blue/pink), extraído do Manual Operacional. */
 
 @layer base {
   :root {
-    /* Core surface */
-    --background: 220 60% 7%;            /* #0A0F1C */
-    --foreground: 213 100% 95%;          /* #EAF2FF */
+    /* Core surface — navy scale */
+    --background: 228 60% 7%;            /* #070C1F */
+    --foreground: 213 100% 95%;          /* near-white */
 
-    --card: 215 55% 11%;                 /* glass card base */
+    --card: 231 56% 13%;                 /* #0F1535 */
     --card-foreground: 213 100% 95%;
+    --card2: 230 51% 16%;                /* #141B3D */
 
-    --popover: 218 55% 9%;
+    --popover: 230 57% 12%;
     --popover-foreground: 213 100% 95%;
 
     /* Brand */
-    --primary: 213 100% 59%;             /* #2D8CFF */
-    --primary-foreground: 220 60% 7%;
-    --primary-glow: 213 100% 65%;        /* #4DA3FF */
-    --primary-deep: 211 65% 16%;         /* #0F2A44 */
+    --navy: 228 60% 7%;                  /* #070C1F */
+    --navy2: 230 57% 12%;                /* #0D1330 */
+    --navy3: 232 56% 16%;                /* #121840 */
 
-    --secondary: 215 45% 16%;
+    --primary: 217 100% 65%;             /* #4A8EFF (--blue) */
+    --primary-foreground: 228 60% 7%;
+    --primary-glow: 217 100% 71%;        /* #6BA3FF (--blue2) */
+    --primary-deep: 232 56% 16%;
+
+    --blue: 217 100% 65%;                /* #4A8EFF */
+    --blue2: 217 100% 71%;               /* #6BA3FF */
+    --pink: 282 100% 65%;                /* #C84BFF */
+    --pink2: 332 100% 65%;               /* #FF4B9E */
+
+    --secondary: 230 51% 16%;
     --secondary-foreground: 213 100% 95%;
 
-    --muted: 215 40% 14%;
-    --muted-foreground: 213 50% 78%;     /* #A8C1E8 */
+    --muted: 230 45% 14%;
+    --muted-foreground: 221 32% 65%;     /* #8B9DC3 (--gray) */
 
-    --accent: 213 100% 59%;
-    --accent-foreground: 220 60% 7%;
+    --accent: 282 100% 65%;              /* pink accent */
+    --accent-foreground: 228 60% 7%;
 
-    --destructive: 0 75% 58%;
+    --destructive: 0 100% 70%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 142 70% 45%;
-    --warning: 38 95% 55%;
+    --success: 152 100% 65%;             /* #4BFFA1 */
+    --warning: 38 100% 65%;              /* #FFB54B */
 
-    --border: 213 40% 22% / 0.4;
-    --input: 215 45% 18%;
-    --ring: 213 100% 59%;
+    --border: 217 100% 65% / 0.18;
+    --input: 230 51% 18%;
+    --ring: 217 100% 65%;
 
-    --radius: 0.625rem;
+    --radius: 1rem;                      /* 16px */
+
+    /* Gradiente de marca — fonte única de verdade (3 cores fixas, stops
+       simétricos 0/50/100%). Mantenha em sincronia com src/lib/gradient.ts. */
+    --aurea-gradient-blue: #4A8EFF;
+    --aurea-gradient-purple: #C84BFF;
+    --aurea-gradient-pink: #FF4B9E;
 
     /* Gradients & shadows */
-    --gradient-app: linear-gradient(135deg, hsl(220 60% 7%), hsl(212 60% 16%), hsl(213 60% 28%));
-    --gradient-primary: linear-gradient(135deg, hsl(213 100% 59%), hsl(213 100% 68%));
-    --gradient-card: linear-gradient(135deg, hsl(215 55% 13% / 0.85), hsl(215 55% 9% / 0.7));
-    --glow-primary: 0 0 40px hsl(213 100% 59% / 0.35);
-    --shadow-card: 0 10px 40px -10px hsl(220 80% 4% / 0.6);
-    --shadow-elevated: 0 20px 60px -20px hsl(213 100% 30% / 0.4);
+    --gradient-brand: linear-gradient(90deg, var(--aurea-gradient-blue) 0%, var(--aurea-gradient-purple) 50%, var(--aurea-gradient-pink) 100%);
+    --gradient-app: linear-gradient(135deg, hsl(228 60% 7%), hsl(232 56% 16%), hsl(230 57% 22%));
+    --gradient-primary: linear-gradient(135deg, hsl(217 100% 65%), hsl(217 100% 71%));
+    --gradient-card: linear-gradient(135deg, hsl(231 56% 15% / 0.85), hsl(231 56% 10% / 0.7));
+    --glow-primary: 0 0 40px hsl(217 100% 65% / 0.35);
+    --shadow-card: 0 10px 40px -10px hsl(228 80% 4% / 0.6);
+    --shadow-elevated: 0 20px 60px -20px hsl(217 100% 60% / 0.4);
 
-    /* Sidebar */
-    --sidebar-background: 218 60% 8%;
-    --sidebar-foreground: 213 50% 78%;
-    --sidebar-primary: 213 100% 59%;
+    /* Sidebar — 240px, mesma identidade do manual */
+    --sidebar-background: 230 57% 8%;
+    --sidebar-foreground: 221 32% 65%;
+    --sidebar-primary: 217 100% 65%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 215 50% 14%;
+    --sidebar-accent: 230 51% 14%;
     --sidebar-accent-foreground: 213 100% 95%;
-    --sidebar-border: 213 40% 20% / 0.4;
-    --sidebar-ring: 213 100% 59%;
+    --sidebar-border: 217 100% 65% / 0.18;
+    --sidebar-ring: 217 100% 65%;
   }
 
   .dark {
     /* Same as root — app is dark only */
-    --background: 220 60% 7%;
+    --background: 228 60% 7%;
     --foreground: 213 100% 95%;
   }
 }
@@ -76,15 +93,15 @@
   html, body, #root { height: 100%; }
   body {
     @apply text-foreground;
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Inter', system-ui, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     font-feature-settings: 'cv11', 'ss01';
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     background: hsl(var(--background));
     background-image:
-      radial-gradient(ellipse 80% 60% at 50% 30%, hsl(213 100% 45% / 0.18), transparent 60%),
-      radial-gradient(ellipse 60% 50% at 80% 90%, hsl(213 100% 55% / 0.12), transparent 60%),
+      radial-gradient(ellipse 80% 60% at 50% 30%, hsl(217 100% 45% / 0.16), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 80% 90%, hsl(282 100% 55% / 0.10), transparent 60%),
       var(--gradient-app);
     background-attachment: fixed;
     min-height: 100vh;
@@ -94,12 +111,12 @@
     position: fixed;
     inset: 0;
     pointer-events: none;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.7  0 0 0 0 0.8  0 0 0 0 1  0 0 0 0.025 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.7  0 0 0 0 0.75  0 0 0 0 1  0 0 0 0.025 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
     opacity: 0.5;
     mix-blend-mode: overlay;
     z-index: 0;
   }
-  h1, h2, h3, h4 { font-weight: 600; letter-spacing: -0.01em; }
+  h1, h2, h3, h4 { font-weight: 700; letter-spacing: -0.01em; }
 }
 
 @layer components {
@@ -107,7 +124,7 @@
     background: var(--gradient-card);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    border: 1px solid hsl(213 60% 50% / 0.18);
+    border: 1px solid hsl(var(--border));
     box-shadow: var(--shadow-card);
     border-radius: var(--radius);
   }
@@ -116,21 +133,79 @@
   }
   .glass-card-hover:hover {
     transform: translateY(-2px);
-    border-color: hsl(213 100% 60% / 0.45);
+    border-color: hsl(217 100% 65% / 0.45);
     box-shadow: var(--shadow-elevated), var(--glow-primary);
   }
   .btn-glow {
     background: var(--gradient-primary);
     color: hsl(var(--primary-foreground));
     transition: all 0.25s ease-in-out;
-    box-shadow: 0 4px 20px -8px hsl(213 100% 50% / 0.6);
+    box-shadow: 0 4px 20px -8px hsl(217 100% 60% / 0.6);
+  }
+  /* Balão de mensagem ENVIADA (Atendimento e Comunicação Interna) — escrito
+     em CSS puro em vez de `border-primary/30` porque a config do Tailwind
+     define as cores como "hsl(var(--primary))" sem o placeholder
+     <alpha-value>, então o modificador de opacidade (/30) era ignorado e a
+     borda saía sólida/clara (quase branca) em vez do azul translúcido
+     pretendido. */
+  .bubble-sent {
+    background: linear-gradient(135deg, hsl(217 100% 65% / 0.22), hsl(217 100% 65% / 0.06));
+    border: 1px solid hsl(217 100% 65% / 0.45);
+  }
+  /* Balão de mensagem RECEBIDA (resposta do cliente) — mesma ideia do
+     .bubble-sent, mas azul→roxo (em vez de só azul) pra diferenciar
+     visualmente quem enviou cada mensagem à primeira vista. */
+  .bubble-received {
+    background: linear-gradient(135deg, hsl(217 100% 65% / 0.14), hsl(270 90% 65% / 0.16));
+    border: 1px solid hsl(245 90% 70% / 0.4);
+  }
+  /* Chip de arquivo anexado (documento) dentro da bolha — antes era um bloco
+     azul-marinho sólido (bg-background/40) destacado do resto da mensagem;
+     agora é um degradê sutil DERIVADO da própria cor da bolha em que está
+     (mesmos hue/saturation de .bubble-sent/.bubble-received, só a primeira
+     parada ~9% mais clara), então o chip parece parte do balão, não um
+     bloco colado em cima. */
+  .attachment-chip {
+    transition: background 150ms ease;
+  }
+  .attachment-chip-sent {
+    background: linear-gradient(135deg, hsl(217 100% 74% / 0.26), hsl(217 100% 65% / 0.12));
+    border: 1px solid hsl(217 100% 74% / 0.35);
+  }
+  .attachment-chip-sent:hover {
+    background: linear-gradient(135deg, hsl(217 100% 78% / 0.34), hsl(217 100% 65% / 0.12));
+  }
+  .attachment-chip-received {
+    background: linear-gradient(135deg, hsl(217 100% 74% / 0.18), hsl(270 90% 65% / 0.20));
+    border: 1px solid hsl(245 90% 78% / 0.35);
+  }
+  .attachment-chip-received:hover {
+    background: linear-gradient(135deg, hsl(217 100% 78% / 0.26), hsl(270 90% 65% / 0.20));
+  }
+  /* Bolinha de aviso de pendência (menu lateral, nav mobile, não-lidas na
+     lista de conversas) — antes era verde (ou vermelha) com número branco
+     difícil de ler; degradê azul→roxo da marca, número sempre branco. */
+  .badge-pending {
+    background: linear-gradient(135deg, hsl(217 100% 65%), hsl(270 90% 65%));
+    color: hsl(0 0% 100%);
   }
   .btn-glow:hover {
     transform: translateY(-2px);
-    box-shadow: 0 10px 30px -8px hsl(213 100% 55% / 0.7), 0 0 24px hsl(213 100% 60% / 0.4);
+    box-shadow: 0 10px 30px -8px hsl(217 100% 65% / 0.7), 0 0 24px hsl(217 100% 65% / 0.4);
   }
   .text-gradient-primary {
     background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .text-gradient-brand {
+    /* --accent-gradient permite que uma fileira de elementos repetidos (ex:
+       CadenciaItem, SlaItem) passe uma FATIA do gradiente por instância via
+       inline style, em vez de cada elemento repetir o ciclo inteiro sozinho.
+       Sem override, cai no gradiente completo (uso isolado). Ver
+       src/lib/gradient.ts::getGradientSlice / gradientSliceStyle. */
+    background: var(--accent-gradient, var(--gradient-brand));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -141,38 +216,115 @@
   }
   .scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: hsl(213 40% 30% / 0.5); border-radius: 8px;
+    background: hsl(217 40% 40% / 0.5); border-radius: 8px;
   }
   .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin { scrollbar-color: hsl(217 40% 40% / 0.5) transparent; }
+
+  /* Versão mais fina, para caixas de texto estreitas (composer do chat) —
+     a .scrollbar-thin padrão (8px) não cabia dentro do padding direito do
+     textarea e vazava pra fora do box arredondado. Precisa definir
+     `scrollbar-color` (não só `scrollbar-width`) — Chrome recente passou a
+     priorizar a propriedade padrão sobre os pseudo-elementos ::-webkit-*
+     quando ambos aparecem, e sem scrollbar-color ele caía pro cinza/branco
+     nativo do SO em vez do azul definido abaixo. */
+  .scrollbar-thin-composer::-webkit-scrollbar { width: 4px; }
+  .scrollbar-thin-composer::-webkit-scrollbar-thumb {
+    background: hsl(217 40% 40% / 0.5); border-radius: 8px;
+  }
+  .scrollbar-thin-composer::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin-composer {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(217 40% 40% / 0.5) transparent;
+  }
 
   /* iOS-style mobile refinements */
   @media (max-width: 767px) {
-    /* Larger, more comfortable tap targets */
     button, [role="button"], a.btn, .ios-tap {
       -webkit-tap-highlight-color: transparent;
     }
-    /* Inputs feel native on iOS — 16px prevents zoom */
     input, textarea, select {
       font-size: 16px !important;
     }
-    /* Softer, larger radii for cards on mobile */
     .glass-card {
       border-radius: 18px;
-      border-color: hsl(213 60% 60% / 0.12);
+      border-color: hsl(217 100% 65% / 0.12);
     }
-    /* Smoother momentum scroll */
     .scrollbar-thin { -webkit-overflow-scrolling: touch; }
   }
 
-  /* iOS-style list rows */
   .ios-list {
     @apply rounded-2xl overflow-hidden;
-    background: hsl(215 50% 12% / 0.5);
+    background: hsl(230 51% 14% / 0.5);
     backdrop-filter: blur(20px);
-    border: 1px solid hsl(213 60% 50% / 0.1);
+    border: 1px solid hsl(217 100% 65% / 0.1);
   }
   .ios-list > * + * {
-    border-top: 1px solid hsl(213 40% 30% / 0.2);
+    border-top: 1px solid hsl(217 40% 40% / 0.2);
+  }
+
+  /* ── Blocos visuais do Manual Operacional (reuso em todo o CRM) ── */
+  .script-block {
+    background: linear-gradient(135deg, hsl(217 100% 65% / 0.06) 0%, hsl(var(--card)) 100%);
+    border: 1px solid hsl(217 100% 65% / 0.25);
+    border-left: 3px solid hsl(var(--blue));
+    border-radius: 12px;
+    padding: 20px 24px;
+  }
+  .script-block-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+    color: hsl(var(--blue)); margin-bottom: 10px;
+  }
+  .script-block-text {
+    color: #CBD8FF; font-size: 14px; line-height: 1.8; font-style: italic;
+  }
+  .objection-block {
+    background: hsl(var(--card2)); border: 1px solid hsl(var(--border));
+    border-radius: 14px; overflow: hidden;
+  }
+  .objection-q {
+    background: hsl(282 100% 65% / 0.08); border-bottom: 1px solid hsl(var(--border));
+    padding: 14px 20px; font-size: 14px; font-weight: 600; color: hsl(var(--pink));
+    display: flex; align-items: center; gap: 10px;
+  }
+  .objection-a {
+    padding: 16px 20px; font-size: 14px; line-height: 1.75; font-style: italic; color: #CBD8FF;
+  }
+  .compliance-alert {
+    display: flex; align-items: flex-start; gap: 14px; padding: 16px 20px;
+    border-radius: 12px; font-size: 14px; line-height: 1.6;
+  }
+  .compliance-alert.danger { background: hsl(0 100% 70% / 0.06); border: 1px solid hsl(0 100% 70% / 0.18); color: #FFB8B8; }
+  .compliance-alert.success { background: hsl(152 100% 65% / 0.04); border: 1px solid hsl(152 100% 65% / 0.18); color: #A8FFD8; }
+  .compliance-alert.warning { background: hsl(38 100% 65% / 0.04); border: 1px solid hsl(38 100% 65% / 0.2); color: #FFDB99; }
+  .info-box {
+    background: hsl(217 100% 65% / 0.07); border: 1px solid hsl(217 100% 65% / 0.2);
+    border-radius: 12px; padding: 20px 24px; font-size: 14px; color: #8BB4FF; line-height: 1.7;
+  }
+  .info-box strong { color: hsl(var(--blue2)); }
+  .quote-block {
+    background: linear-gradient(135deg, hsl(217 100% 65% / 0.08) 0%, hsl(282 100% 65% / 0.06) 100%);
+    border: 1px solid hsl(217 100% 65% / 0.25); border-left: 4px solid hsl(var(--blue));
+    border-radius: 12px; padding: 28px 32px; position: relative;
+  }
+  .quote-block-text { font-size: 15px; line-height: 1.9; color: #C8D8FF; font-style: italic; }
+
+  /* Faixa de gradiente no topo de um card "em destaque" — mesmo efeito dos
+     valor-card do Manual Operacional, disponível para qualquer card do CRM.
+     Uso: className="glass-card glass-card-accent ..." */
+  .glass-card-accent {
+    position: relative;
+    overflow: hidden;
+  }
+  .glass-card-accent::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    /* --accent-gradient: mesma indireção usada em .text-gradient-brand — uma
+       fileira de cards passa a fatia por instância; isolado, cai no gradiente
+       completo. Ver src/lib/gradient.ts. */
+    background: var(--accent-gradient, var(--gradient-brand));
   }
 }
 
@@ -195,7 +347,7 @@
   to   { opacity: 1; transform: translateX(0); }
 }
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 hsl(213 100% 60% / 0.5); }
-  50% { box-shadow: 0 0 0 10px hsl(213 100% 60% / 0); }
+  0%, 100% { box-shadow: 0 0 0 0 hsl(217 100% 65% / 0.5); }
+  50% { box-shadow: 0 0 0 10px hsl(217 100% 65% / 0); }
 }
 .animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }

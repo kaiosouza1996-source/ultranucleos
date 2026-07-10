@@ -48,6 +48,9 @@ Abra o painel → **Conexão** → escaneie o QR Code (Configurações do WhatsA
 
 ## Estrutura de dados
 
+Tudo abaixo vive dentro de `DATA_DIR` (padrão: a própria pasta do projeto; em
+produção, aponte para um volume persistente — ver seção *Deploy no Railway*):
+
 - `data.db` — SQLite (contatos, tags, conversas, mensagens, templates, logs)
 - `.wwebjs_auth/` — sessão persistente do WhatsApp
 - `media/` — arquivos enviados/recebidos
@@ -57,6 +60,28 @@ Para resetar tudo:
 ```bash
 rm -rf .wwebjs_auth data.db media
 ```
+
+## Deploy no Railway
+
+O serviço usa um `Dockerfile` (não Nixpacks puro) porque o Puppeteer/whatsapp-web.js
+precisa de um Chromium real + libs de sistema para abrir headless — sem isso o QR
+nunca é gerado. O `Dockerfile` já instala o Chromium via `apt-get` e aponta
+`PUPPETEER_EXECUTABLE_PATH` para ele automaticamente.
+
+Passos manuais necessários no painel do Railway (não são feitos pelo código):
+
+1. **Volume persistente** — sem isso, todo redeploy apaga a sessão do WhatsApp.
+   No serviço `whatsapp-engine`, crie um Volume (aba *Volumes*) e monte em, por
+   exemplo, `/data`. Defina a variável de ambiente `DATA_DIR=/data` no serviço.
+   Isso move `.wwebjs_auth/`, `data.db` e `media/` para dentro do volume.
+2. **URL pública HTTPS** — gere um domínio público para este serviço (Settings →
+   Networking → Generate Domain). Copie a URL `https://...up.railway.app`.
+3. No serviço do **frontend**, defina `VITE_ENGINE_URL` com essa URL HTTPS
+   (nunca `http://`, senão o navegador bloqueia por mixed content em produção).
+
+Sem o volume, a sessão do WhatsApp precisa ser reconectada (novo QR) a cada deploy.
+Sem o domínio HTTPS correto no frontend, a aba Atendimento e os disparos não
+conseguem falar com este serviço em produção.
 
 ## Solução de problemas
 

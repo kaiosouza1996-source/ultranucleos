@@ -22,6 +22,19 @@ export default {
           glow: "hsl(var(--primary-glow))",
           deep: "hsl(var(--primary-deep))",
         },
+        navy: {
+          DEFAULT: "hsl(var(--navy))",
+          2: "hsl(var(--navy2))",
+          3: "hsl(var(--navy3))",
+        },
+        brandblue: {
+          DEFAULT: "hsl(var(--blue))",
+          2: "hsl(var(--blue2))",
+        },
+        brandpink: {
+          DEFAULT: "hsl(var(--pink))",
+          2: "hsl(var(--pink2))",
+        },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
           foreground: "hsl(var(--secondary-foreground))",
@@ -45,6 +58,7 @@ export default {
         card: {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
+          2: "hsl(var(--card2))",
         },
         success: "hsl(var(--success))",
         warning: "hsl(var(--warning))",
@@ -63,6 +77,7 @@ export default {
         "gradient-primary": "var(--gradient-primary)",
         "gradient-app": "var(--gradient-app)",
         "gradient-card": "var(--gradient-card)",
+        "gradient-brand": "var(--gradient-brand)",
       },
       boxShadow: {
         glow: "var(--glow-primary)",
